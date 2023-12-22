@@ -5,6 +5,8 @@ No warranty implied; use at your own risk.
 
 Licensed under MIT License or public domain, whichever you prefer.
 More explicit license information at the end of the file.
+
+@TODO fix incorrect error printing with comments
 */
 
 #ifndef MUVGC_H
@@ -244,7 +246,6 @@ MUDEF muString mu_compile_vulkan_glsl(muResult* result, const char* code, muVGCS
 #endif
 
 #endif /* MUVGC_H */
-
 
 #ifdef MUVGC_IMPLEMENTATION
 
@@ -973,1056 +974,157 @@ extern "C" { // }
 
 #endif /* MUS_IMPLEMENTATION */
 
-/* useful funcs */
+/* TO BE IMPLEMENTED IN MUS */
 
-// to be implemented in mus eventually
-
-muString mu_string_create_raw(char* s, size_m s_len) {
-    muString str;
-    str.len = s_len;
-    str.size = (sizeof(char) * (str.len)) * 2;
-    str.s = mu_malloc(str.size);
-    str.ws = 0;
-    str.type = MU_STRING_TYPE_CHAR;
-    for (size_m i = 0; i < str.len; i++) {
-        str.s[i] = s[i];
-    }
-    return str;
-}
-
-// might want to use memcpy, eh
-muString mu_string_insert_raw(muString str, char* insert, size_m insert_len, size_m i) {
-    str = mu_string_size_check(str, sizeof(char) * (mu_string_strlen(str) + insert_len + 1));
-    for (size_m j = mu_string_strlen(str); i < j+1; j--) {
-        if (str.type == MU_STRING_TYPE_CHAR) {
-            str.s[j+insert_len] = str.s[j];
-        } else {
-            str.ws[j+insert_len] = str.ws[j];
-        }
-    }
-    for (size_m j = 0; j < insert_len; j++) {
-        if (str.type == MU_STRING_TYPE_CHAR) {
-            str.s[i+j] = insert[j];
-        } else {
-            str.ws[i+j] = insert[j];
-        }
-    }
-    str.len += insert_len;
-    return str;
-}
-
-size_m muVGC_get_line_of_code(const char* s, size_m index) {
-	size_m len = mu_strlen(s);
-	size_m linecount = 0;
-	for (size_m i = 0; i < len; i++) {
-		if (s[i] == '\n') {
-			linecount++;
-		}
-		if (i == index) {
-			return linecount;
-		}
-	}
-	return linecount;
-}
-
-size_m muVGC_get_character(const char* s, size_m index) {
-	size_m len = mu_strlen(s);
-	size_m linecount = 0;
-	size_m char_count = 0;
-	for (size_m i = 0; i < len; i++) {
-		char_count++;
-		if (s[i] == '\n') {
-			linecount++;
-			char_count = 0;
-		}
-		if (i == index) {
-			return char_count;
-		}
-	}
-	return char_count;
-}
-
-// https://stackoverflow.com/a/7022827
-int muVGC_get_int_from_string(const char* s, size_m len) {
-	int ret = 0;
-	size_m i = 0;
-	int mul = 1;
-	while (i != len) {
-		if (s[i] == '-') {
-			mul = -1;
-		} else {
-			ret = (ret*10) + (s[i] - '0');
-		}
-		i++;
-	}
-	return ret*mul;
-}
-
-void muVGC_print_syntax_error(const char* s, size_m index) {
-	mu_print("[muVGC] Syntax error (line %zu, character %zu); ", muVGC_get_line_of_code(s, index), muVGC_get_character(s, index));
-}
-
-char muVGC_get_execution_model(muVGCShader shader) {
-	switch (shader) {
-		default: return 0; break;
-		case MUVGC_VERTEX: return 0; break;
-		case MUVGC_FRAGMENT: return 4; break;
-	}
-}
-
-uint32_m muVGC_get_word(const char* b) {
-	const unsigned char* ub = (const unsigned char*)b;
-	return ub[0] + (ub[1] << 8) + (ub[2] << 16) + (ub[3] << 24);
-}
-int muVGC_get_halfword(const char* b) {
-	const unsigned char* ub = (const unsigned char*)b;
-	return ub[0] + (ub[1] << 8);
-}
-
-/* token stuff */
-
-enum muVGCTokenType {
-	MUVGC_TOKEN_UNKNOWN=0,
-	MUVGC_TOKEN_END_OF_FILE,
-
-	MUVGC_TOKEN_NAME,
-	MUVGC_TOKEN_INTEGER,
-	MUVGC_TOKEN_DECIMAL,
-
-	MUVGC_TOKEN_MACRO_STATEMENT,
-
-	MUVGC_TOKEN_OPEN_PARENTHESIS,
-	MUVGC_TOKEN_CLOSE_PARENTHESIS,
-	MUVGC_TOKEN_OPEN_CURLY_BRACKET,
-	MUVGC_TOKEN_CLOSE_CURLY_BRACKET,
-	MUVGC_TOKEN_OPEN_BRACKET,
-	MUVGC_TOKEN_CLOSE_BRACKET,
-
-	MUVGC_TOKEN_EQUALS,
-	MUVGC_TOKEN_SEMICOLON,
-	MUVGC_TOKEN_COMMA
-};
-typedef enum muVGCTokenType muVGCTokenType;
-
-void muVGC_print_token_type(muVGCTokenType type) {
-	switch (type) {
-		default: mu_print("unknown"); break;
-		case MUVGC_TOKEN_END_OF_FILE: mu_print("end of file"); break;
-		case MUVGC_TOKEN_NAME: mu_print("name"); break;
-		case MUVGC_TOKEN_INTEGER: mu_print("integer"); break;
-		case MUVGC_TOKEN_DECIMAL: mu_print("decimal"); break;
-		case MUVGC_TOKEN_MACRO_STATEMENT: mu_print("macro statement"); break;
-		case MUVGC_TOKEN_OPEN_PARENTHESIS: mu_print("open parenthesis"); break;
-		case MUVGC_TOKEN_CLOSE_PARENTHESIS: mu_print("close parenthesis"); break;
-		case MUVGC_TOKEN_OPEN_CURLY_BRACKET: mu_print("open curly bracket"); break;
-		case MUVGC_TOKEN_CLOSE_CURLY_BRACKET: mu_print("close curly bracket"); break;
-		case MUVGC_TOKEN_OPEN_BRACKET: mu_print("open bracket"); break;
-		case MUVGC_TOKEN_CLOSE_BRACKET: mu_print("close bracket"); break;
-		case MUVGC_TOKEN_EQUALS: mu_print("equals"); break;
-		case MUVGC_TOKEN_SEMICOLON: mu_print("semicolon"); break;
-		case MUVGC_TOKEN_COMMA: mu_print("comma"); break;
-	}
-}
-
-struct muVGCToken {
-	size_m i;
-	size_m length;
-	size_m effective_length;
-	muVGCTokenType type;
-};
-typedef struct muVGCToken muVGCToken;
-
-muBool muVGC_is_character_a_break(char c) {
-	return c == ' ' || c == '\n' || c == '\t';
-}
-
-muVGCToken muVGC_get_next_token(const char* code, size_m codelen, muVGCToken prev_token) {
-	if (prev_token.i + 1 >= codelen) {
-		prev_token.i = codelen;
-		prev_token.type = MUVGC_TOKEN_END_OF_FILE;
-		return prev_token;
-	}
-	prev_token.i += prev_token.length;
-	prev_token.length = 1;
-	prev_token.effective_length = 0;
-	while (prev_token.i < codelen && muVGC_is_character_a_break(code[prev_token.i])) {
-		prev_token.i++;
+	muString mu_string_create_raw(char* s, size_m s_len) {
+	    muString str;
+	    str.len = s_len;
+	    str.size = (sizeof(char) * (str.len)) * 2;
+	    str.s = mu_malloc(str.size);
+	    str.ws = 0;
+	    str.type = MU_STRING_TYPE_CHAR;
+	    for (size_m i = 0; i < str.len; i++) {
+	        str.s[i] = s[i];
+	    }
+	    return str;
 	}
 
-	if (
-		(code[prev_token.i] >= 'a' && code[prev_token.i] <= 'z') ||
-		(code[prev_token.i] >= 'A' && code[prev_token.i] <= 'Z')
-	) {
-		prev_token.type = MUVGC_TOKEN_NAME;
-		while (
-			prev_token.i + prev_token.length < codelen &&
-			(
-				(code[prev_token.i+prev_token.length] >= 'a' && code[prev_token.i+prev_token.length] <= 'z') ||
-				(code[prev_token.i+prev_token.length] >= 'A' && code[prev_token.i+prev_token.length] <= 'Z') ||
-				(code[prev_token.i+prev_token.length] >= '0' && code[prev_token.i+prev_token.length] <= '9')
-			)
-		) {
-			prev_token.length++;
+/* CODE MOVEMENT/IDENTIFICATION FUNCTIONS */
+
+	size_m muVGC_get_line_of_code(const char* s, size_m index) {
+		size_m len = mu_strlen(s);
+		size_m linecount = 0;
+		for (size_m i = 0; i < len; i++) {
+			if (s[i] == '\n') {
+				linecount++;
+			}
+			if (i == index) {
+				return linecount;
+			}
 		}
-		return prev_token;
-	} else if (code[prev_token.i] >= '0' && code[prev_token.i] <= '9') {
-		prev_token.type = MUVGC_TOKEN_INTEGER;
-		while (
-			prev_token.i + prev_token.length < codelen &&
-			code[prev_token.i+prev_token.length] >= '0' && code[prev_token.i+prev_token.length] <= '9'
-		) {
-			prev_token.length++;
+		return linecount;
+	}
+
+	size_m muVGC_get_character(const char* s, size_m index) {
+		size_m len = mu_strlen(s);
+		size_m linecount = 0;
+		size_m char_count = 0;
+		for (size_m i = 0; i < len; i++) {
+			char_count++;
+			if (s[i] == '\n') {
+				linecount++;
+				char_count = 0;
+			}
+			if (i == index) {
+				return char_count;
+			}
 		}
-		if (prev_token.i + prev_token.length < codelen && code[prev_token.i+prev_token.length] == '.') {
-			prev_token.type = MUVGC_TOKEN_DECIMAL;
-			if (prev_token.i + prev_token.length + 1 < codelen) {
-				prev_token.length++;
-				while (
-					prev_token.i + prev_token.length < codelen &&
-					code[prev_token.i+prev_token.length] >= '0' && code[prev_token.i+prev_token.length] <= '9'
-				) {
-					prev_token.length++;
+		return char_count;
+	}
+
+	size_m muVGC_get_next_new_line(const char* s, size_m slen, size_m index) {
+		if (index >= slen) {
+			return slen;
+		}
+		while (index < slen && (s[index] != '\n')) {
+			index++;
+			if (index < slen && index > 0 && s[index] == '\n' && s[index-1] == '\\') {
+				index++;
+			}
+		}
+		return index;
+	}
+
+/* PRINT FUNCS */
+
+	void muVGC_print_syntax_error(const char* s, size_m index) {
+		mu_print("[muVGC] Syntax error (line %zu, character %zu); ", muVGC_get_line_of_code(s, index), muVGC_get_character(s, index));
+	}
+
+/* COMMENT HANDLING */
+
+	muResult muVGC_error_check_comments(muString code) {
+		for (size_m i = 0; i < mu_string_strlen(code); i++) {
+			size_m orig_i = i;
+			if (mu_here(code.s, "/*", i)) {
+				i += 2;
+				while ((i < mu_string_strlen(code) && (mu_here(code.s, "*/", i) == MU_FALSE))) {
+					i++;
+				}
+				if (i >= mu_string_strlen(code)) {
+					muVGC_print_syntax_error(code.s, orig_i);
+					mu_print("comment beginning with '/*' never has a corresponding end '*/'\n");
+					return MU_FAILURE;
 				}
 			}
 		}
-		return prev_token;
+
+		return MU_SUCCESS;
 	}
 
-	switch (code[prev_token.i]) {
-		default: {
-			prev_token.type = MUVGC_TOKEN_UNKNOWN;
-			return prev_token;
-		} break;
-		case '\0': {
-			prev_token.i = codelen;
-			prev_token.type = MUVGC_TOKEN_END_OF_FILE;
-			return prev_token;
-		} break;
-		case '#': {
-			prev_token.type = MUVGC_TOKEN_MACRO_STATEMENT;
-			prev_token.length = 1;
-			while (prev_token.i + prev_token.effective_length < codelen && code[prev_token.i+prev_token.effective_length] != '\n') {
-				prev_token.effective_length++;
+	void muVGC_empty_comments(muString code) {
+		for (size_m i = 0; i < mu_string_strlen(code); i++) {
+			if (mu_here(code.s, "/*", i)) {
+				while ((i < mu_string_strlen(code) && (mu_here(code.s, "*/", i) == MU_FALSE))) {
+					if (code.s[i] != '\n') {
+						code.s[i] = ' ';
+					}
+					i++;
+				}
+				code.s[i] = ' ';
+				code.s[i+1] = ' ';
 			}
-			return prev_token;
-		} break;
-		case '(': {
-			prev_token.type = MUVGC_TOKEN_OPEN_PARENTHESIS;
-			prev_token.length = 1;
-			while (prev_token.i + prev_token.effective_length < codelen && code[prev_token.i+prev_token.effective_length] != ')') {
-				prev_token.effective_length++;
-			}
-			prev_token.effective_length++;
-			return prev_token;
-		} break;
-		case ')': {
-			prev_token.type = MUVGC_TOKEN_CLOSE_PARENTHESIS;
-			prev_token.length = 1;
-			return prev_token;
-		} break;
-		case '{': {
-			prev_token.type = MUVGC_TOKEN_OPEN_CURLY_BRACKET;
-			prev_token.length = 1;
-			while (prev_token.i + prev_token.effective_length < codelen && code[prev_token.i+prev_token.effective_length] != '}') {
-				prev_token.effective_length++;
-			}
-			prev_token.effective_length++;
-			return prev_token;
-		} break;
-		case '}': {
-			prev_token.type = MUVGC_TOKEN_CLOSE_CURLY_BRACKET;
-			prev_token.length = 1;
-			return prev_token;
-		} break;
-		case '[': {
-			prev_token.type = MUVGC_TOKEN_OPEN_BRACKET;
-			prev_token.length = 1;
-			while (prev_token.i + prev_token.effective_length < codelen && code[prev_token.i+prev_token.effective_length] != ']') {
-				prev_token.effective_length++;
-			}
-			prev_token.effective_length++;
-			return prev_token;
-		} break;
-		case ']': {
-			prev_token.type = MUVGC_TOKEN_CLOSE_BRACKET;
-			prev_token.length = 1;
-			return prev_token;
-		} break;
-		case '=': {
-			prev_token.type = MUVGC_TOKEN_EQUALS;
-			prev_token.length = 1;
-			return prev_token;
-		} break;
-		case ';': {
-			prev_token.type = MUVGC_TOKEN_SEMICOLON;
-			prev_token.length = 1;
-			return prev_token;
-		} break;
-		case ',': {
-			prev_token.type = MUVGC_TOKEN_COMMA;
-			prev_token.length = 1;
-			return prev_token;
-		} break;
-	}
-}
-
-/* section funcs */
-
-muString muVGC_handle_first_words_section(muResult* result, muString str) {
-	char first_words[] = {
-		// Magic number: 0x07230203 (SPIR-V)
-		0x03, 0x02, 0x23, 0x07,
-		// Version: v1.0.0
-		0, 0, 0x01, 0,
-		// Generator: 0b00 0d00 (god knows what this means)
-		0x0b, 0, 0x0d, 0,
-		// Bound: 1 (will increase as we compile)
-		1, 0, 0, 0,
-		// Schema: 0 (we're not doing any fancy schema stuff)
-		0, 0, 0, 0
-	};
-	str = mu_string_create_raw(first_words, sizeof(first_words));
-	return str;
-}
-
-muString muVGC_handle_beginning_instructions_section(muResult* result, muString str, muString code_str, muVGCShader shader) {
-	char beginning_commands[] = {
-		// OpCapability Shader
-		17, 0, 2, 0, 
-		1, 0, 0, 0,
-		// %1 = OpExtInstImport "GLSL.std.450"
-		11, 0, 6, 0,
-		1, 0, 0, 0,
-		'G', 'L', 'S', 'L',
-		'.', 's', 't', 'd',
-		'.', '4', '5', '0',
-		0, 0, 0, 0,
-		// OpMemoryModel Logical GLSL450
-		14, 0, 3, 0,
-		0, 0, 0, 0,
-		1, 0, 0, 0,
-		// OpEntryPoint SHADER %4 "main" { %9 }
-		15, 0, 5, 0,
-		muVGC_get_execution_model(shader), 0, 0, 0,
-		4, 0, 0, 0,
-		'm', 'a', 'i', 'n',
-		0, 0, 0, 0,
-	};
-	str = mu_string_insert_raw(str, beginning_commands, sizeof(beginning_commands), mu_string_strlen(str));
-
-	// Specify the origin of the screen to the upper-left for fragment shaders
-	if (shader == MUVGC_FRAGMENT) {
-		char cmd[] = {
-			// OpExecutionMode %4 OriginUpperLeft
-			16, 0, 3, 0,
-			4, 0, 0, 0,
-			7, 0, 0, 0,
-		};
-		str = mu_string_insert_raw(str, cmd, sizeof(cmd), mu_string_strlen(str));
-	}
-
-	// Get version for next instructions
-
-	size_m codelen = mu_string_strlen(code_str);
-	muVGCToken token = { 0 };
-	token.i = 0;
-	token.length = 0;
-	token.type = MUVGC_TOKEN_END_OF_FILE;
-
-	if (0 >= codelen) {
-		muVGC_print_syntax_error(code_str.s, 0);
-		mu_print("expected '#version' at beginning of file, but first token is type '");
-		muVGC_print_token_type(MUVGC_TOKEN_END_OF_FILE);
-		mu_print("'\n");
-		*result = MU_FAILURE;
-		return str;
-	}
-
-	token = muVGC_get_next_token(code_str.s, codelen, token);
-	if (token.type != MUVGC_TOKEN_MACRO_STATEMENT) {
-		muVGC_print_syntax_error(code_str.s, token.i);
-		mu_print("expected '#version' at beginning of file, but first token is type '");
-		muVGC_print_token_type(token.type);
-		mu_print("'\n");
-		*result = MU_FAILURE;
-		return str;
-	}
-
-	token = muVGC_get_next_token(code_str.s, codelen, token);
-	if (token.type != MUVGC_TOKEN_NAME) {
-		muVGC_print_syntax_error(code_str.s, token.i);
-		mu_print("expected '#version' at beginning of file, but token after '#' is type '");
-		muVGC_print_token_type(token.type);
-		mu_print("'\n");
-		*result = MU_FAILURE;
-		return str;
-	}
-	if (token.length != 7 || (mu_strncmp(&code_str.s[token.i], "version", 7) != 0)) {
-		muVGC_print_syntax_error(code_str.s, token.i);
-		mu_print("expected '#version' at beginning of file, but directive is '");
-		for (size_m i = 0; i < token.length; i++) {
-			mu_printf("%c", code_str.s[token.i+i]);
-		}
-		mu_print("'\n");
-		*result = MU_FAILURE;
-		return str;
-	}
-
-	token = muVGC_get_next_token(code_str.s, codelen, token);
-	if (token.type != MUVGC_TOKEN_INTEGER) {
-		muVGC_print_syntax_error(code_str.s, token.i);
-		mu_print("expected token type '");
-		muVGC_print_token_type(MUVGC_TOKEN_INTEGER);
-		mu_print("' after '#version', but token type is '");
-		muVGC_print_token_type(token.type);
-		mu_print("'\n");
-		*result = MU_FAILURE;
-		return str;
-	}
-	// @TODO more thorough testing for a valid GLSL version
-	int glsl_version = muVGC_get_int_from_string(&code_str.s[token.i], token.length);
-	if (glsl_version < 140) {
-		muVGC_print_syntax_error(code_str.s, token.i);
-		mu_printf("version must be 140 or higher, but version is %i.\n", glsl_version);
-		*result = MU_FAILURE;
-		return str;
-	}
-
-	// More instructions
-	char beginning_commands_2[] = {
-		// OpSource GLSL 450
-		3, 0, 3, 0,
-		2, 0, 0, 0,
-		glsl_version & 0xFF, (glsl_version >> 8) & 0xFF, (glsl_version >> 16) & 0xFF, (glsl_version >> 24) & 0xFF,
-		// OpSourceExtension "GL_GOOGLE_cpp_style_line_directive" (@TODO might be wise to not include, figure out!)
-		4, 0, 10, 0,
-		'G', 'L', '_', 'G',
-		'O', 'O', 'G', 'L',
-		'E', '_', 'c', 'p',
-		'p', '_', 's', 't',
-		'y', 'l', 'e', '_',
-		'l', 'i', 'n', 'e',
-		'_', 'd', 'i', 'r',
-		'e', 'c', 't', 'i',
-		'v', 'e', 0, 0,
-		// OpSourceExtension "GL_GOOGLE_include_directive" (again probably not wise to include)
-		4, 0, 8, 0,
-		'G', 'L', '_', 'G',
-		'O', 'O', 'G', 'L',
-		'E', '_', 'i', 'n',
-		'c', 'l', 'u', 'd',
-		'e', '_', 'd', 'i',
-		'r', 'e', 'c', 't',
-		'i', 'v', 'e', 0,
-	};
-	str = mu_string_insert_raw(str, beginning_commands_2, sizeof(beginning_commands_2), mu_string_strlen(str));
-
-	return str;
-}
-
-/* section hopping functions (all hop to the end of the given section btw) */
-
-size_m muVGC_hop_to_naming_section(muString bytecode) {
-	for (size_m i = 20; i <= mu_string_strlen(bytecode);) {
-		int instruction = muVGC_get_halfword(&bytecode.s[i]);
-		int step = muVGC_get_halfword(&bytecode.s[i+2]);
-		if (step == 0) {
-			return 20;
-		}
-
-		// Go to OpSource call
-		if (instruction == 3) {
-			i += step * 4;
-			instruction = muVGC_get_halfword(&bytecode.s[i]);
-			step = muVGC_get_halfword(&bytecode.s[i+2]);
-
-			// Go past all calls to:
-			// OpSourceContinued, OpSource, OpSourceExtension, OpName, OpMemberName,
-			// OpString, OpLine, OpNoLine, OpModuleProcessed
-			while (i < mu_string_strlen(bytecode) && (
-				(instruction >= 2 && instruction <= 8) || 
-				(instruction == 317) || (instruction == 330))
-			) {
-				i += step * 4;
-				instruction = muVGC_get_halfword(&bytecode.s[i]);
-				step = muVGC_get_halfword(&bytecode.s[i+2]);
-			}
-
-			return i;
-		}
-
-		i += step * 4;
-	}
-
-	return 20;
-}
-
-size_m muVGC_hop_to_decoration_section(muString bytecode) {
-	for (size_m i = muVGC_hop_to_naming_section(bytecode); i <= mu_string_strlen(bytecode);) {
-		int instruction = muVGC_get_halfword(&bytecode.s[i]);
-		int step = muVGC_get_halfword(&bytecode.s[i+2]);
-
-		// Go past all calls to:
-		// OpDecorate, OpMemberDecorate, OpDecorationGroup, OpGroupDecorate, OpGroupMemberDecorate,
-		// OpDecorateId, OpDecorateString, OpMemberDecorateString
-		while (i < mu_string_strlen(bytecode) && (
-			(instruction >= 71 && instruction <= 75) || 
-			(instruction == 332) || (instruction == 5632) || 
-			(instruction == 5633))
-		) {
-			i += step * 4;
-			instruction = muVGC_get_halfword(&bytecode.s[i]);
-			step = muVGC_get_halfword(&bytecode.s[i+2]);
-		}
-
-		return i;
-
-		//i += step * 4;
-	}
-
-	return 20;
-}
-
-size_m muVGC_hop_to_variable_section(muString bytecode) {
-	for (size_m i = muVGC_hop_to_decoration_section(bytecode); i <= mu_string_strlen(bytecode);) {
-		int instruction = muVGC_get_halfword(&bytecode.s[i]);
-		int step = muVGC_get_halfword(&bytecode.s[i+2]);
-
-		// Go past all calls to:
-		// Type-Declaration Instructions
-		// Constant-Creation Instructions
-		// Memory Instructions
-		while (i < mu_string_strlen(bytecode) && (
-			(instruction >= 19 && instruction <= 39) || 
-			(instruction == 322) || (instruction == 327) ||
-			(instruction == 4456) || (instruction == 6086) ||
-			(instruction == 6090) ||
-
-			(instruction >= 41 && instruction <= 46) ||
-			(instruction >= 48 && instruction <= 52) ||
-			(instruction == 6091) || (instruction == 6092) ||
-
-			(instruction >= 59 && instruction <= 70) || 
-			(instruction >= 401 && instruction <= 403) ||
-			(instruction == 4457) || (instruction == 4458))
-		) {
-			i += step * 4;
-			instruction = muVGC_get_halfword(&bytecode.s[i]);
-			step = muVGC_get_halfword(&bytecode.s[i+2]);
-		}
-
-		return i;
-
-		//i += step * 4;
-	}
-
-	return 20;
-}
-
-size_m muVGC_hop_to_function_section(muString bytecode) {
-	return mu_string_strlen(bytecode);
-}
-
-/* useful section functions */
-
-void muVGC_name(uint32_m global_id, muString* bytecode, const char* name, size_m namelen) {
-	size_m i = muVGC_hop_to_naming_section(*bytecode);
-
-	// OpName %global_id "name"
-
-	size_m datanamelen = namelen;
-	if ((datanamelen % 4) == 0) {
-		datanamelen++;
-	}
-	while (((datanamelen) % 4) != 0) {
-		datanamelen++;
-	}
-	uint16_m fulllen = (datanamelen / 4) + 2;
-
-	char opnamebytes[] = {
-		5, 0, fulllen & 0xFF, (fulllen >> 8) & 0xFF,
-		global_id & 0xFF, (global_id >> 8) & 0xFF, (global_id >> 16) & 0xFF, (global_id >> 24) & 0xFF
-	};
-	*bytecode = mu_string_insert_raw(*bytecode, opnamebytes, sizeof(opnamebytes), i);
-	i += sizeof(opnamebytes);
-
-	*bytecode = mu_string_insert_raw(*bytecode, (char*)name, namelen, i);
-	i += namelen;
-
-	char four_empty[] = { 0, 0, 0, 0 };
-	*bytecode = mu_string_insert_raw(*bytecode, four_empty, datanamelen - namelen, i);
-}
-
-/* useful general functions */
-
-size_m muVGC_get_instruction(muString bytecode, char* instruction, muBool* boolmap, size_m len) {
-	for (size_m i = 20; i < mu_string_strlen(bytecode);) {
-		int step = muVGC_get_halfword(&bytecode.s[i+2]);
-
-		if (step == 0) {
-			break;
-		}
-		if (len > (step * 4)) {
-			i += step * 4;
-			continue;
-		}
-
-		muBool equals = MU_TRUE;
-		for (size_m j = 0; j < len; j++) {
-			if ((boolmap[j]) && (bytecode.s[i+j] != instruction[j])) {
-				equals = MU_FALSE;
-				break;
-			}
-		}
-		if (equals == MU_TRUE) {
-			return i;
-		}
-
-		i += step * 4;
-	}
-
-	return 0;
-}
-
-uint32_m muVGC_get_type(muString* bytecode, const char* type, size_m typelen, size_m* global_id) {
-	switch (typelen) {
-		default: break;
-		case 4: {
-			if (mu_strncmp(type, "void", 4) == 0) {
-				uint32_m u32_gi = (uint32_m)*global_id;
-				char bytes[] = {
-					19, 0, 2, 0,
-					u32_gi & 0xFF, (u32_gi >> 8) & 0xFF, (u32_gi >> 16) & 0xFF, (u32_gi >> 24) & 0xFF
-				};
-				muBool boolmap[] = {
-					1, 1, 1, 1,
-					0, 0, 0, 0
-				};
-				size_m instr = muVGC_get_instruction(*bytecode, bytes, boolmap, sizeof(bytes));
-				if (instr == 0) {
-					size_m var_section = muVGC_hop_to_variable_section(*bytecode);
-
-					*bytecode = mu_string_insert_raw(*bytecode, bytes, sizeof(bytes), var_section);
-					*global_id += 1;
-					return u32_gi;
-				} else {
-					return muVGC_get_word(&bytecode->s[instr+4]);
+			if (mu_here(code.s, "//", i)) {
+				size_m end = muVGC_get_next_new_line(code.s, mu_string_strlen(code), i);
+				if (end >= mu_string_strlen(code)) {
+					end--;
+				}
+				for (size_m j = i; j <= end; j++) {
+					if (code.s[j] != '\n') {
+						code.s[j] = ' ';
+					}
 				}
 			}
-		} break;
-	}
-
-	return 0;
-}
-
-uint32_m muVGC_get_function_type(muString* bytecode, uint32_m type, char* args, size_m arglen, size_m* global_id) {
-	uint32_m u32_gi = (uint32_m)*global_id;
-
-	char bytes[] = {
-		// @TODO this may cause problems
-		33, 0, 3+arglen, 0,
-		u32_gi & 0xFF, (u32_gi >> 8) & 0xFF, (u32_gi >> 16) & 0xFF, (u32_gi >> 24) & 0xFF,
-		type & 0xFF, (type >> 8) & 0xFF, (type >> 16) & 0xFF, (type >> 24) & 0xFF
-	};
-	muBool boolmap[] = {
-		1, 1, 1, 1,
-		0, 0, 0, 0,
-		1, 1, 1, 1
-	};
-
-	size_m instr = muVGC_get_instruction(*bytecode, bytes, boolmap, sizeof(bytes));
-	if ((instr == 0) || (instr != 0 && arglen > 0 && mu_strncmp(&bytecode->s[instr], args, arglen) != 0)) {
-		size_m var_section = muVGC_hop_to_variable_section(*bytecode);
-		*bytecode = mu_string_insert_raw(*bytecode, bytes, sizeof(bytes), var_section);
-		*global_id += 1;
-		return u32_gi;
-	}
-
-	return muVGC_get_word(&bytecode->s[instr+4]);
-}
-
-uint32_m muVGC_get_function(muString* bytecode, uint32_m return_type, uint32_m func_type, size_m* global_id) {
-	uint32_m u32_gi = (uint32_m)*global_id;
-
-	char bytes[] = {
-		54, 0, 5, 0,
-		return_type & 0xFF, (return_type >> 8) & 0xFF, (return_type >> 16) & 0xFF, (return_type >> 24) & 0xFF,
-		u32_gi & 0xFF, (u32_gi >> 8) & 0xFF, (u32_gi >> 16) & 0xFF, (u32_gi >> 24) & 0xFF,
-		0, 0, 0, 0,
-		func_type & 0xFF, (func_type >> 8) & 0xFF, (func_type >> 16) & 0xFF, (func_type >> 24) & 0xFF
-	};
-	muBool boolmap[] = {
-		1, 1, 1, 1,
-		1, 1, 1, 1,
-		0, 0, 0, 0,
-		1, 1, 1, 1,
-		1, 1, 1, 1
-	};
-
-	size_m instr = muVGC_get_instruction(*bytecode, bytes, boolmap, sizeof(bytes));
-	if (instr == 0) {
-		size_m func_section = muVGC_hop_to_function_section(*bytecode);
-		*bytecode = mu_string_insert_raw(*bytecode, bytes, sizeof(bytes), func_section);
-		*global_id += 1;
-		return u32_gi;
-	}
-
-	return muVGC_get_word(&bytecode->s[instr+8]);
-}
-
-// no param functions
-
-void muVGC_op_label(muString* bytecode, size_m* global_id) {
-	uint32_m u32_gi = (uint32_m)*global_id;
-
-	uint16_m in = 248;
-	char bytes[] = {
-		in & 0xFF, (in >> 8) & 0xFF, 2, 0,
-		u32_gi & 0xFF, (u32_gi >> 8) & 0xFF, (u32_gi >> 16) & 0xFF, (u32_gi >> 24) & 0xFF
-	};
-
-	*bytecode = mu_string_insert_raw(*bytecode, bytes, sizeof(bytes), muVGC_hop_to_function_section(*bytecode));
-	*global_id += 1;
-}
-
-void muVGC_op_function_end(muString* bytecode, size_m* global_id) {
-	char bytes[] = {
-		56, 0, 1, 0,
-	};
-	*bytecode = mu_string_insert_raw(*bytecode, bytes, sizeof(bytes), muVGC_hop_to_function_section(*bytecode));
-}
-
-// very general functions
-
-// @TODO handle args
-uint32_m muVGC_declare_function(muResult* result, muString* bytecode, muString code, size_m* global_id, muVGCToken token) {
-	uint32_m type = muVGC_get_type(bytecode, &code.s[token.i], token.length, global_id);
-	if (type == 0) {
-		// @TODO try declaring type first
-		muVGC_print_syntax_error(code.s, token.i);
-		mu_print("unrecognized type '");
-		for (size_m i = 0; i < token.length; i++) {
-			mu_printf("%c", code.s[token.i+i]);
-		}
-		mu_print("' specified for function return type\n");
-		*result = MU_FAILURE;
-		return 0;
-	}
-
-	uint32_m func_type = muVGC_get_function_type(bytecode, type, MU_NULL_PTR, 0, global_id);
-	uint32_m func = muVGC_get_function(bytecode, type, func_type, global_id);
-
-	token = muVGC_get_next_token(code.s, mu_string_strlen(code), token);
-	muVGC_name(func, bytecode, &code.s[token.i], token.length);
-	muVGC_op_label(bytecode, global_id);
-	muVGC_op_function_end(bytecode, global_id);
-	return func;
-}
-
-/* error functions */
-
-/* @TODO
-function syntax: TYPE NAME(ARGS){...}
-redeclaration
-*/
-
-muResult muVGC_error_unrecognized_token(muString str) {
-	muVGCToken token = { 0 };
-	token.i = 0;
-	token.length = 0;
-	token.type = MUVGC_TOKEN_UNKNOWN;
-
-	for (size_m i = 0; i < mu_string_strlen(str) && token.type != MUVGC_TOKEN_END_OF_FILE;) {
-		token = muVGC_get_next_token(str.s, mu_string_strlen(str), token);
-		i = token.i;
-
-		if (token.type == MUVGC_TOKEN_UNKNOWN) {
-			muVGC_print_syntax_error(str.s, token.i);
-			mu_print("unrecognized token '");
-			for (size_m i = 0; i < token.length; i++) {
-				mu_printf("%c", str.s[token.i+i]);
-			}
-			mu_print("'\n");
-			return MU_FAILURE;
 		}
 	}
 
-	return MU_SUCCESS;
-}
-
-muResult muVGC_error_bracket_counting(muString str) {
-	muVGCToken token = { 0 };
-	token.i = 0;
-	token.length = 0;
-	token.type = MUVGC_TOKEN_UNKNOWN;
-
-	int64_m brackets = 0;
-	muVGCToken last_bracket_token = { 0 };
-	int64_m curly_brackets = 0;
-	muVGCToken last_curly_bracket_token = { 0 };
-	int64_m parentheses = 0;
-	muVGCToken last_parenthesis_token = { 0 };
-
-	for (size_m i = 0; i < mu_string_strlen(str) && token.type != MUVGC_TOKEN_END_OF_FILE;) {
-		token = muVGC_get_next_token(str.s, mu_string_strlen(str), token);
-		i = token.i;
-
-		switch (token.type) {
-			default: break;
-			case MUVGC_TOKEN_OPEN_BRACKET: brackets++; last_bracket_token = token; break;
-			case MUVGC_TOKEN_CLOSE_BRACKET: brackets--; break;
-			case MUVGC_TOKEN_OPEN_CURLY_BRACKET: curly_brackets++; last_curly_bracket_token = token; break;
-			case MUVGC_TOKEN_CLOSE_CURLY_BRACKET: curly_brackets--; break;
-			case MUVGC_TOKEN_OPEN_PARENTHESIS: parentheses++; last_parenthesis_token = token; break;
-			case MUVGC_TOKEN_CLOSE_PARENTHESIS: parentheses--; break;
+	void muVGC_handle_comments(muResult* result, muString code) {
+		if (muVGC_error_check_comments(code) != MU_SUCCESS) {
+			*result = MU_FAILURE;
+			return;
 		}
 
-		if (brackets < 0 || curly_brackets < 0 || parentheses < 0) {
-			muVGC_print_syntax_error(str.s, token.i);
-			mu_print("unexpected extra ");
-			muVGC_print_token_type(token.type);
-			mu_print("\n");
-			return MU_FAILURE;
+		muVGC_empty_comments(code);
+		printf("-----\n%s\n-----\n", code.s);
+	}
+
+/* API-LEVEL FUNCS */
+
+	MUDEF muString mu_compile_vulkan_glsl(muResult* result, const char* code, muVGCShader shader) {
+		if (result != MU_NULL_PTR) {
+			*result = MU_SUCCESS;
 		}
-	}
+		muResult res = MU_SUCCESS;
 
-	if (brackets > 0) {
-		muVGC_print_syntax_error(str.s, last_bracket_token.i);
-		muVGC_print_token_type(last_bracket_token.type);
-		mu_print(" never closes\n");
-		return MU_FAILURE;
-	}
-	if (curly_brackets > 0) {
-		muVGC_print_syntax_error(str.s, last_curly_bracket_token.i);
-		muVGC_print_token_type(last_curly_bracket_token.type);
-		mu_print(" never closes\n");
-		return MU_FAILURE;
-	}
-	if (parentheses > 0) {
-		muVGC_print_syntax_error(str.s, last_parenthesis_token.i);
-		muVGC_print_token_type(last_parenthesis_token.type);
-		mu_print(" never closes\n");
-		return MU_FAILURE;
-	}
+		muString code_str = mu_string_create((char*)code);
+		muString bytecode_str = mu_string_create_raw((char*)"\0", 1);
 
-	return MU_SUCCESS;
-}
-
-/* stage functions */
-
-muResult muVGC_scan_for_errors(muString str) {
-	if (muVGC_error_unrecognized_token(str) != MU_SUCCESS) {
-		return MU_FAILURE;
-	}
-	if (muVGC_error_bracket_counting(str) != MU_SUCCESS) {
-		return MU_FAILURE;
-	}
-
-	return MU_SUCCESS;
-}
-
-muString muVGC_clear_code(muResult* result, muString str) {
-	// Not sure if this entirely matches how GLSL's comments are handled
-	for (size_m i = 0; i < mu_string_strlen(str); i++) {
-		size_m orig_i = i;
-		if (mu_here(str.s, "/*", i)) {
-			i += 2;
-			while ((i < mu_string_strlen(str)) && (mu_here(str.s, "*/", i) == MU_FALSE)) {
-				i++;
-			}
-			if (i >= mu_string_strlen(str)) {
-				muVGC_print_syntax_error(str.s, orig_i);
-				mu_print("comment beginning with '/*' never has a corresponding end '*/'\n");
+		muVGC_handle_comments(&res, code_str);
+		if (res != MU_SUCCESS) {
+			if (result != MU_NULL_PTR) {
 				*result = MU_FAILURE;
-				return str;
-			}
-			i += 2;
-			str = mu_string_delete(str, orig_i, i);
-		}
-		i = orig_i;
-		if (mu_here(str.s, "//", i)) {
-			while (i < mu_string_strlen(str) && str.s[i] != '\n') {
-				i++;
-			}
-			str = mu_string_delete(str, orig_i, i);
-		}
-		i = orig_i;
-	}
-
-	return str;
-}
-
-// @TODO this
-muString muVGC_preprocess(muResult* result, muString str) {
-	return str;
-}
-
-muString muVGC_specify_functions(muResult* result, muString str, size_m* global_id, muString* bytecode) {
-	muVGCToken token = { 0 };
-	token.i = 0;
-	token.length = 0;
-	token.type = MUVGC_TOKEN_UNKNOWN;
-
-	// find main function and set as entry point
-	muVGCToken main_token = { 0 };
-	muBool found_main_function = MU_FALSE;
-
-	for (size_m i = 0; i < mu_string_strlen(str);) {
-		token = muVGC_get_next_token(str.s, mu_string_strlen(str), token);
-		i = token.i;
-
-		if (token.type == MUVGC_TOKEN_NAME && token.length == 4 && mu_strncmp(&str.s[token.i], "void", 4) == 0) {
-			token = muVGC_get_next_token(str.s, mu_string_strlen(str), token);
-			i = token.i;
-
-			if (token.type != MUVGC_TOKEN_NAME) {
-				muVGC_print_syntax_error(str.s, token.i);
-				mu_print("expected token '");
-				muVGC_print_token_type(MUVGC_TOKEN_NAME);
-				mu_print("' after 'void', but got token '");
-				muVGC_print_token_type(token.type);
-				mu_print("'\n");
-				*result = MU_FAILURE;
-				return str;
 			}
 
-			if (token.length == 4 && mu_strncmp(&str.s[token.i], "main", 4) == 0) {
-				found_main_function = MU_TRUE;
-				main_token = token;
-				main_token.i -= main_token.length + 1;
-
-				token = muVGC_get_next_token(str.s, mu_string_strlen(str), token);
-				i = token.i;
-				if (token.type != MUVGC_TOKEN_OPEN_PARENTHESIS) {
-					muVGC_print_syntax_error(str.s, token.i);
-					mu_print("expected token '");
-					muVGC_print_token_type(MUVGC_TOKEN_OPEN_PARENTHESIS);
-					mu_print("' after 'void main', but got token '");
-					muVGC_print_token_type(token.type);
-					mu_print("'\n");
-					*result = MU_FAILURE;
-					return str;
-				}
-
-				token = muVGC_get_next_token(str.s, mu_string_strlen(str), token);
-				i = token.i;
-				if (token.type != MUVGC_TOKEN_CLOSE_PARENTHESIS) {
-					muVGC_print_syntax_error(str.s, token.i);
-					mu_print("expected token '");
-					muVGC_print_token_type(MUVGC_TOKEN_CLOSE_PARENTHESIS);
-					mu_print("' after 'void main(', but got token '");
-					muVGC_print_token_type(token.type);
-					mu_print("'; no arguments can be provided to the main function\n");
-					*result = MU_FAILURE;
-					return str;
-				}
-			}
+			code_str = mu_string_destroy(code_str);
+			bytecode_str = mu_string_destroy(bytecode_str);
+			return (muString){ 0 };
 		}
-	}
 
-	if (found_main_function == MU_FALSE) {
-		muVGC_print_syntax_error(str.s, token.i);
-		mu_print("expected void main function declaration before end of file\n");
-		*result = MU_FAILURE;
-		return str;
-	}
-
-	// Declare main function
-
-	muResult res = MU_SUCCESS;
-	muVGC_declare_function(&res, bytecode, str, global_id, main_token);
-	if (res != MU_SUCCESS) {
-		*result = MU_FAILURE;
-		return str;
-	}
-
-	return str;
-}
-
-/* API-level funcs */
-
-// @TODO test if shader enum is valid
-MUDEF muString mu_compile_vulkan_glsl(muResult* result, const char* code, muVGCShader shader) {
-	muString str = { 0 };
-	muString empty_str = { 0 };
-	muString code_str = mu_string_create((char*)code);
-	muResult res = MU_SUCCESS;
-	size_m global_id = 2;
-	
-	if (result != MU_NULL_PTR) {
-		*result = MU_SUCCESS;
-	}
-
-	// scan for errors
-	if (muVGC_scan_for_errors(code_str) != MU_SUCCESS) {
-		if (result != MU_NULL_PTR) {
-			*result = MU_FAILURE;
-		}
 		code_str = mu_string_destroy(code_str);
-		return empty_str;
+		return bytecode_str;
 	}
 
-	// clear code of comments
-	code_str = muVGC_clear_code(&res, code_str);
-	if (res != MU_SUCCESS) {
-		if (result != MU_NULL_PTR) {
-			*result = MU_FAILURE;
-		}
-		code_str = mu_string_destroy(code_str);
-		return empty_str;
-	}
-
-	// process all preprocessing directives/instructions
-	code_str = muVGC_preprocess(&res, code_str);
-	if (res != MU_SUCCESS) {
-		if (result != MU_NULL_PTR) {
-			*result = MU_FAILURE;
-		}
-		code_str = mu_string_destroy(code_str);
-		return empty_str;
-	}
-
-	// Note: creates string
-	str = muVGC_handle_first_words_section(&res, str);
-	if (res != MU_SUCCESS) {
-		if (result != MU_NULL_PTR) {
-			*result = MU_FAILURE;
-		}
-		str = mu_string_destroy(str);
-		code_str = mu_string_destroy(code_str);
-		return empty_str;
-	}
-
-	str = muVGC_handle_beginning_instructions_section(&res, str, code_str, shader);
-	if (res != MU_SUCCESS) {
-		if (result != MU_NULL_PTR) {
-			*result = MU_FAILURE;
-		}
-		str = mu_string_destroy(str);
-		code_str = mu_string_destroy(code_str);
-		return empty_str;
-	}
-
-	// specify functions' existences
-	code_str = muVGC_specify_functions(&res, code_str, &global_id, &str);
-	if (res != MU_SUCCESS) {
-		if (result != MU_NULL_PTR) {
-			*result = MU_FAILURE;
-		}
-		str = mu_string_destroy(str);
-		code_str = mu_string_destroy(code_str);
-		return empty_str;
-	}
-
-	// set bound
-	str.s[12] = global_id & 0xFF;
-	str.s[13] = (global_id >> 8) & 0xFF;
-	str.s[14] = (global_id >> 16) & 0xFF;
-	str.s[15] = (global_id >> 24) & 0xFF;
-
-	code_str = mu_string_destroy(code_str);
-	return str;
-}
+/* end */
 
 #ifdef __cplusplus
 }
