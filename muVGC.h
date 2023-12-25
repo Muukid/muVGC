@@ -5,8 +5,6 @@ No warranty implied; use at your own risk.
 
 Licensed under MIT License or public domain, whichever you prefer.
 More explicit license information at the end of the file.
-
-@TODO fix incorrect error printing with comments
 */
 
 #ifndef MUVGC_H
@@ -233,7 +231,11 @@ MUDEF int   mu_float_to_wstring(double n, size_m max_decimals, wchar_m* dest, si
 
 enum muVGCShader {
 	MUVGC_VERTEX,
-	MUVGC_FRAGMENT
+	MUVGC_TESSELLATION_CONTROL,
+	MUVGC_TESSELLATION_EVALUATION,
+	MUVGC_GEOMETRY,
+	MUVGC_FRAGMENT,
+	MUVGC_COMPUTE
 };
 typedef enum muVGCShader muVGCShader;
 
@@ -989,6 +991,47 @@ extern "C" { // }
 	    return str;
 	}
 
+	int64_m mu_get_integer_from_string(char* s, size_m len) {
+		int64_m ret = 0;
+		size_m i = 0;
+		char mul = 1;
+		while (i < len) {
+			if (s[i] == '-') {
+				if (ret != 0) {
+					return ret;
+				}
+				mul *= -1;
+			} else if (s[i] < '0' || s[i] > '9') {
+				return ret;
+			} else {
+				ret = (ret*10) + (s[i] - '0');
+			}
+			i++;
+		}
+		return ret;
+	}
+
+	// might want to use memcpy, eh
+	muString mu_string_insert_raw(muString str, char* insert, size_m insert_len, size_m i) {
+	    str = mu_string_size_check(str, sizeof(char) * (mu_string_strlen(str) + insert_len + 1));
+	    for (size_m j = mu_string_strlen(str); i < j+1; j--) {
+	        if (str.type == MU_STRING_TYPE_CHAR) {
+	            str.s[j+insert_len] = str.s[j];
+	        } else {
+	            str.ws[j+insert_len] = str.ws[j];
+	        }
+	    }
+	    for (size_m j = 0; j < insert_len; j++) {
+	        if (str.type == MU_STRING_TYPE_CHAR) {
+	            str.s[i+j] = insert[j];
+	        } else {
+	            str.ws[i+j] = insert[j];
+	        }
+	    }
+	    str.len += insert_len;
+	    return str;
+	}
+
 /* CODE MOVEMENT/IDENTIFICATION FUNCTIONS */
 
 	size_m muVGC_get_line_of_code(const char* s, size_m index) {
@@ -1022,6 +1065,10 @@ extern "C" { // }
 		return char_count;
 	}
 
+	muBool muVGC_is_character_empty(char c) {
+		return c == ' ' || c == '\\' || c == '\t' || c == '\n';
+	}
+
 	size_m muVGC_get_next_new_line(const char* s, size_m slen, size_m index) {
 		if (index >= slen) {
 			return slen;
@@ -1033,6 +1080,46 @@ extern "C" { // }
 			}
 		}
 		return index;
+	}
+
+	size_m muVGC_get_next_non_empty_char(const char* s, size_m slen, size_m index) {
+		if (index >= slen) {
+			return slen;
+		}
+		while (index < slen && (s[index] == ' ' || s[index] == '\n' || s[index] == '\t')) {
+			index++;
+		}
+		return index;
+	}
+
+	size_m muVGC_get_next_empty_char(const char* s, size_m slen, size_m index) {
+		if (index >= slen) {
+			return slen;
+		}
+		while (index < slen && s[index] != ' ' && s[index] != '\n' && s[index] != '\t') {
+			index++;
+		}
+		return index;
+	}
+
+	size_m muVGC_get_next_non_space(const char* s, size_m slen, size_m index) {
+		if (index >= slen) {
+			return slen;
+		}
+		while (index < slen && s[index] == ' ') {
+			index++;
+		}
+		return index;
+	}
+
+/* CODE MODIFICATION FUNCS */
+
+	void muVGC_clear_code(char* s, size_m beg, size_m end) {
+		for (size_m i = beg; i < end; i++) {
+			if (s[i] != '\n') {
+				s[i] = ' ';
+			}
+		}
 	}
 
 /* PRINT FUNCS */
@@ -1095,7 +1182,224 @@ extern "C" { // }
 		}
 
 		muVGC_empty_comments(code);
-		printf("-----\n%s\n-----\n", code.s);
+	}
+
+/* MACRO HANDLING */
+
+	muResult muVGC_is_version_valid(muString code, size_m* number_index, size_m* beg, size_m* end) {
+		size_m i = muVGC_get_next_non_empty_char(code.s, mu_string_strlen(code), 0);
+		if (i >= mu_string_strlen(code)) {
+			muVGC_print_syntax_error(code.s, 0);
+			mu_print("string passed contains no readable code\n");
+			return MU_FAILURE;
+		}
+
+		*beg = i;
+		if (code.s[i] != '#') {
+			muVGC_print_syntax_error(code.s, i);
+			mu_print("expected '#' as first token to specify version\n");
+			return MU_FAILURE;
+		}
+
+		i = muVGC_get_next_non_space(code.s, mu_string_strlen(code), i+1);
+		if ((i+8 >= mu_string_strlen(code)) || (mu_strncmp(&code.s[i], "version ", 8) != 0)) {
+			muVGC_print_syntax_error(code.s, i);
+			mu_print("expected 'version' after token '#'\n");
+			return MU_FAILURE;
+		}
+
+		i = muVGC_get_next_non_space(code.s, mu_string_strlen(code), i+7);
+		*number_index = i;
+		if (i >= mu_string_strlen(code) || (code.s[i] >= '0' && code.s[i] <= '9') == MU_FALSE) {
+			muVGC_print_syntax_error(code.s, i);
+			mu_print("expected number after '#version'\n");
+			return MU_FAILURE;
+		}
+
+		size_m end_i = muVGC_get_next_empty_char(code.s, mu_string_strlen(code), i);
+		for (size_m j = i; j < end_i; j++) {
+			if ((code.s[j] >= '0' && code.s[j] <= '9') == MU_FALSE) {
+				muVGC_print_syntax_error(code.s, i);
+				mu_print("expected number after '#version'\n");
+				return MU_FAILURE;
+			}
+		}
+		i = end_i;
+		*end = end_i;
+
+		i = muVGC_get_next_non_space(code.s, mu_string_strlen(code), i);
+		if (i >= mu_string_strlen(code) || code.s[i] == '\n') {
+			return MU_SUCCESS;
+		}
+
+		end_i = muVGC_get_next_empty_char(code.s, mu_string_strlen(code), i);
+		if ((end_i-i != 4) || (mu_strncmp(&code.s[i], "core", 4) != 0)) {
+			muVGC_print_syntax_error(code.s, i);
+			mu_print("expected anything after '#version N' to be 'core'\n");
+			return MU_FAILURE;
+		}
+
+		i = end_i;
+		end_i = muVGC_get_next_new_line(code.s, mu_string_strlen(code), end_i);
+		for (size_m j = i; j < end_i; j++) {
+			if (muVGC_is_character_empty(code.s[j]) == MU_FALSE) {
+				muVGC_print_syntax_error(code.s, j);
+				mu_print("expected only newline after version directive\n");
+				return MU_FAILURE;
+			}
+		}
+		*end = end_i;
+
+		return MU_SUCCESS;
+	}
+
+	muString muVGC_macro_handle_first_words(muResult* result, muString bytecode) {
+		char first_words[] = {
+			// Magic number
+			0x03, 0x02, 0x23, 0x07,
+			// Version
+			0x00, 0x00, 0x01, 0x00,
+			// Generator number (using glslc's for now)
+			0x0b, 0x00, 0x0d, 0x00,
+			// Bound
+			0x00, 0x00, 0x00, 0x00,
+			// Instruction schema
+			0x00, 0x00, 0x00, 0x00
+		};
+		bytecode = mu_string_insert_raw(bytecode, first_words, sizeof(first_words), 0);
+
+		return bytecode;
+	}
+
+	muString muVGC_macro_handle_first_instructions(muResult* result, muString bytecode, muVGCShader shader, int64_m version) {
+		char shader_capability = 0, execution_model = 0;
+
+		switch (shader) {
+			default: {
+				mu_print("[muVGC] Error compiling Vulkan GLSL code; shader passed in is unknown value\n");
+				*result = MU_FAILURE;
+				return bytecode;
+			} break;
+			case MUVGC_VERTEX: case MUVGC_TESSELLATION_CONTROL: case MUVGC_TESSELLATION_EVALUATION: case MUVGC_GEOMETRY: case MUVGC_COMPUTE: {
+				mu_print("[muVGC] Error compiling Vulkan GLSL code; shader passed in has not been implemented yet. Sorry\n");
+				*result = MU_FAILURE;
+				return bytecode;
+			} break;
+			case MUVGC_FRAGMENT: {
+				shader_capability = 1;
+				execution_model = 4;
+			} break;
+		}
+
+		switch (version) {
+			default: {
+				mu_print("[muVGC] Error compiling Vulkan GLSL code; invalid version number\n");
+				*result = MU_FAILURE;
+				return bytecode;
+			}
+
+			case 110: case 120: case 130: {
+				mu_print("[muVGC] Error compiling Vulkan GLSL code; version number must be at least 140\n");
+				*result = MU_FAILURE;
+				return bytecode;
+			} break;
+
+			case 140: case 150:
+			case 330: case 400: case 410: case 420: case 430:
+			case 440: case 450: case 460: break;
+		}
+
+		char b0[] = {
+			// OpCapability shader_capability
+			17, 0, 2, 0,
+			shader_capability, 0, 0, 0,
+			// %1 = OpExtInstImport "GLSL.std.450"
+			11, 0, 6, 0,
+			1, 0, 0, 0,
+			'G', 'L', 'S', 'L',
+			'.', 's', 't', 'd',
+			'.', '4', '5', '0',
+			0, 0, 0, 0,
+			// OpMemoryModel Logical GLSL450
+			14, 0, 3, 0,
+			0, 0, 0, 0,
+			1, 0, 0, 0,
+			// OpEntryPoint Fragment %4 "main"
+			15, 0, 5, 0,
+			execution_model, 0, 0, 0,
+			4, 0, 0, 0,
+			'm', 'a', 'i', 'n',
+			0, 0, 0, 0,
+			// OpExecutionMode %4 OriginUpperLeft
+			16, 0, 3, 0,
+			4, 0, 0, 0,
+			7, 0, 0, 0,
+			// OpSource GLSL 450
+			3, 0, 3, 0,
+			2, 0, 0, 0,
+			version & 0xFF, (version >> 8) & 0xFF, (version >> 16) & 0xFF, (version >> 24) & 0xFF,
+			// OpSourceExtension "GL_GOOGLE_cpp_style_line_directive"
+			4, 0, 10, 0,
+			'G', 'L', '_', 'G',
+			'O', 'O', 'G', 'L',
+			'E', '_', 'c', 'p',
+			'p', '_', 's', 't',
+			'y', 'l', 'e', '_',
+			'l', 'i', 'n', 'e',
+			'_', 'd', 'i', 'r',
+			'e', 'c', 't', 'i',
+			'v', 'e', 0, 0,
+			// OpSourceExtension "GL_GOOGLE_include_directive"
+			4, 0, 8, 0,
+			'G', 'L', '_', 'G',
+			'O', 'O', 'G', 'L',
+			'E', '_', 'i', 'n',
+			'c', 'l', 'u', 'd',
+			'e', '_', 'd', 'i',
+			'r', 'e', 'c', 't',
+			'i', 'v', 'e', 0,
+		};
+		bytecode = mu_string_insert_raw(bytecode, b0, sizeof(b0), mu_string_strlen(bytecode));
+
+		return bytecode;
+	}
+
+	muString muVGC_macro_handle_version(muResult* result, muString code, muString bytecode, muVGCShader shader) {
+		size_m number_index = 0, beg = 0, end = 0;
+		if (muVGC_is_version_valid(code, &number_index, &beg, &end) != MU_SUCCESS) {
+			*result = MU_FAILURE;
+			return bytecode;
+		}
+
+		int64_m version = mu_get_integer_from_string(&code.s[number_index], (end-beg)-number_index);
+		muVGC_clear_code(code.s, beg, end);
+
+		muResult res = MU_SUCCESS;
+		bytecode = muVGC_macro_handle_first_words(&res, bytecode);
+		if (res != MU_SUCCESS) {
+			*result = MU_FAILURE;
+			return bytecode;
+		}
+
+		bytecode = muVGC_macro_handle_first_instructions(&res, bytecode, shader, version);
+		if (res != MU_SUCCESS) {
+			*result = MU_FAILURE;
+			return bytecode;
+		}
+
+		return bytecode;
+	}
+
+	muString muVGC_handle_macros(muResult* result, muString code, muString bytecode, muVGCShader shader) {
+		muResult res = MU_SUCCESS;
+
+		bytecode = muVGC_macro_handle_version(&res, code, bytecode, shader);
+		if (res != MU_SUCCESS) {
+			*result = MU_FAILURE;
+			return bytecode;
+		}
+
+		return bytecode;
 	}
 
 /* API-LEVEL FUNCS */
@@ -1108,8 +1412,20 @@ extern "C" { // }
 
 		muString code_str = mu_string_create((char*)code);
 		muString bytecode_str = mu_string_create_raw((char*)"\0", 1);
+		bytecode_str = mu_string_delete(bytecode_str, 0, 1);
 
 		muVGC_handle_comments(&res, code_str);
+		if (res != MU_SUCCESS) {
+			if (result != MU_NULL_PTR) {
+				*result = MU_FAILURE;
+			}
+
+			code_str = mu_string_destroy(code_str);
+			bytecode_str = mu_string_destroy(bytecode_str);
+			return (muString){ 0 };
+		}
+
+		bytecode_str = muVGC_handle_macros(&res, code_str, bytecode_str, shader);
 		if (res != MU_SUCCESS) {
 			if (result != MU_NULL_PTR) {
 				*result = MU_FAILURE;
