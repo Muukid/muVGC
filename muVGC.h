@@ -1402,6 +1402,673 @@ extern "C" { // }
 		return bytecode;
 	}
 
+/* TOKEN HANDLING */
+
+	// token type enum
+
+	enum muVGCTokenType {
+		MUVGC_TOKEN_UNKNOWN,
+		MUVGC_TOKEN_KEYWORD,
+		MUVGC_TOKEN_RESERVED_KEYWORD,
+		MUVGC_TOKEN_IDENTIFIER,
+		MUVGC_TOKEN_INTEGER_CONSTANT,
+		MUVGC_TOKEN_FLOAT_CONSTANT,
+		MUVGC_TOKEN_DOUBLE_CONSTANT,
+		MUVGC_TOKEN_END_OF_FILE,
+
+		MUVGC_TOKEN_PERIOD,
+		MUVGC_TOKEN_PLUS,
+		MUVGC_TOKEN_DASH,
+		MUVGC_TOKEN_SLASH,
+		MUVGC_TOKEN_ASTERIK,
+		MUVGC_TOKEN_PERCENT,
+		MUVGC_TOKEN_LESS_THAN_ANGLED_BRACKET,
+		MUVGC_TOKEN_GREATER_THAN_ANGLED_BRACKET,
+		MUVGC_TOKEN_OPEN_SQUARE_BRACKET,
+		MUVGC_TOKEN_CLOSE_SQUARE_BRACKET,
+		MUVGC_TOKEN_OPEN_PARENTHESIS,
+		MUVGC_TOKEN_CLOSE_PARENTHESIS,
+		MUVGC_TOKEN_OPEN_BRACE,
+		MUVGC_TOKEN_CLOSE_BRACE,
+		MUVGC_TOKEN_CARET,
+		MUVGC_TOKEN_VERTICAL_BAR,
+		MUVGC_TOKEN_AMPERSAND,
+		MUVGC_TOKEN_TILDE,
+		MUVGC_TOKEN_EQUALS,
+		MUVGC_TOKEN_EXCLAMATION_POINT,
+		MUVGC_TOKEN_COLON,
+		MUVGC_TOKEN_SEMICOLON,
+		MUVGC_TOKEN_COMMA,
+		MUVGC_TOKEN_QUESTION_MARK
+	};
+	typedef enum muVGCTokenType muVGCTokenType;
+
+	void muVGC_print_token_type(muVGCTokenType type) {
+		switch (type) {
+			default: mu_print("unknown"); break;
+			case MUVGC_TOKEN_KEYWORD: mu_print("keyword"); break;
+			case MUVGC_TOKEN_RESERVED_KEYWORD: mu_print("reserved keyword"); break;
+			case MUVGC_TOKEN_IDENTIFIER: mu_print("identifier"); break;
+			case MUVGC_TOKEN_INTEGER_CONSTANT: mu_print("integer constant"); break;
+			case MUVGC_TOKEN_FLOAT_CONSTANT: mu_print("float constant"); break;
+			case MUVGC_TOKEN_DOUBLE_CONSTANT: mu_print("double constant"); break;
+			case MUVGC_TOKEN_END_OF_FILE: mu_print("end of file"); break;
+
+			case MUVGC_TOKEN_PERIOD: mu_print("period"); break;
+			case MUVGC_TOKEN_PLUS: mu_print("plus"); break;
+			case MUVGC_TOKEN_DASH: mu_print("dash"); break;
+			case MUVGC_TOKEN_SLASH: mu_print("slash"); break;
+			case MUVGC_TOKEN_ASTERIK: mu_print("asterik"); break;
+			case MUVGC_TOKEN_PERCENT: mu_print("percent"); break;
+			case MUVGC_TOKEN_LESS_THAN_ANGLED_BRACKET: mu_print("less-than angled bracket"); break;
+			case MUVGC_TOKEN_GREATER_THAN_ANGLED_BRACKET: mu_print("greater-than angled bracket"); break;
+			case MUVGC_TOKEN_OPEN_SQUARE_BRACKET: mu_print("open square bracket"); break;
+			case MUVGC_TOKEN_CLOSE_SQUARE_BRACKET: mu_print("close square bracket"); break;
+			case MUVGC_TOKEN_OPEN_PARENTHESIS: mu_print("open parenthesis"); break;
+			case MUVGC_TOKEN_CLOSE_PARENTHESIS: mu_print("close parenthesis"); break;
+			case MUVGC_TOKEN_OPEN_BRACE: mu_print("open brace"); break;
+			case MUVGC_TOKEN_CLOSE_BRACE: mu_print("close brace"); break;
+			case MUVGC_TOKEN_CARET: mu_print("caret"); break;
+			case MUVGC_TOKEN_VERTICAL_BAR: mu_print("vertical bar"); break;
+			case MUVGC_TOKEN_AMPERSAND: mu_print("ampersand"); break;
+			case MUVGC_TOKEN_TILDE: mu_print("tilde"); break;
+			case MUVGC_TOKEN_EQUALS: mu_print("equals"); break;
+			case MUVGC_TOKEN_EXCLAMATION_POINT: mu_print("exclamation point"); break;
+			case MUVGC_TOKEN_COLON: mu_print("colon"); break;
+			case MUVGC_TOKEN_SEMICOLON: mu_print("semicolon"); break;
+			case MUVGC_TOKEN_COMMA: mu_print("comma"); break;
+			case MUVGC_TOKEN_QUESTION_MARK: mu_print("question mark"); break;
+		}
+	}
+
+	// token struct
+
+	struct muVGCToken {
+		muVGCTokenType type;
+		size_m index;
+		size_m length;
+		size_m effective_length;
+	};
+	typedef struct muVGCToken muVGCToken;
+
+	// token identification
+
+	muVGCToken muVGC_get_token(const char* code, size_m codelen, size_m index) {
+		muVGCToken token = { 0 };
+		token.type = MUVGC_TOKEN_UNKNOWN;
+		token.index = index;
+		token.length = 1;
+		token.effective_length = 1;
+
+		// Return end-of-file if end of code
+		if ((index >= codelen) || (code[index] == '\0')) {
+			token.type = MUVGC_TOKEN_END_OF_FILE;
+			return token;
+		}
+
+		// Check if it's some name
+		if (
+			(code[index] >= 'a' && code[index] <= 'z') ||
+			(code[index] >= 'A' && code[index] <= 'Z') ||
+			(code[index] == '_')
+		) {
+			// Get length
+			while (
+				(code[token.index+token.length] >= '0' && code[token.index+token.length] <= '9') ||
+				(code[token.index+token.length] >= 'a' && code[token.index+token.length] <= 'z') ||
+				(code[token.index+token.length] >= 'A' && code[token.index+token.length] <= 'Z') ||
+				(code[token.index+token.length] == '_')
+			) {
+				token.length++;
+			}
+
+			// Get type
+			token.type = MUVGC_TOKEN_IDENTIFIER;
+
+			// (keywords)
+			switch (token.length) {
+				default: break;
+				case 2: {
+					if (
+						(mu_strncmp(&code[token.index], "do", 2) == 0) ||
+						(mu_strncmp(&code[token.index], "if", 2) == 0) ||
+						(mu_strncmp(&code[token.index], "in", 2) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 3: {
+					if (
+						(mu_strncmp(&code[token.index], "for", 3) == 0) ||
+						(mu_strncmp(&code[token.index], "out", 3) == 0) ||
+						(mu_strncmp(&code[token.index], "int", 3) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 4: {
+					if (
+						(mu_strncmp(&code[token.index], "flat", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "case", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "else", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "void", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "bool", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "true", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "mat2", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "mat3", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "mat4", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "vec2", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "vec3", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "vec4", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "uint", 4) == 0) ||
+						(mu_strncmp(&code[token.index], "lowp", 4) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 5: {
+					if (
+						(mu_strncmp(&code[token.index], "const", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "break", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "while", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "inout", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "float", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "false", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat2", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat3", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat4", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "ivec2", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "ivec3", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "ivec4", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "bvec2", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "bvec3", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "bvec4", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "dvec2", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "dvec3", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "dvec4", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "uvec2", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "uvec3", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "uvec4", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "highp", 5) == 0) ||
+						(mu_strncmp(&code[token.index], "patch", 5) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 6: {
+					if (
+						(mu_strncmp(&code[token.index], "buffer", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "shared", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "layout", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "smooth", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "switch", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "double", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "return", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "mat2x2", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "mat2x3", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "mat2x4", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "mat3x2", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "mat3x3", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "mat3x4", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "mat4x2", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "mat4x3", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "mat4x4", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "struct", 6) == 0) ||
+						(mu_strncmp(&code[token.index], "sample", 6) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 7: {
+					if (
+						(mu_strncmp(&code[token.index], "uniform", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "varying", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "default", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "precise", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "discard", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat2x2", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat2x3", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat2x4", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat3x2", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat3x3", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat3x4", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat4x2", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat4x3", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "dmat4x4", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "mediump", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "image1D", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "image2D", 7) == 0) ||
+						(mu_strncmp(&code[token.index], "image3D", 7) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 8: {
+					if (
+						(mu_strncmp(&code[token.index], "coherent", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "volatile", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "restrict", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "readonly", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "centroid", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "continue", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "iimage1D", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "uimage1D", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "iimage2D", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "uimage2D", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "iimage3D", 8) == 0) ||
+						(mu_strncmp(&code[token.index], "uimage3D", 8) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 9: {
+					if (
+						(mu_strncmp(&code[token.index], "attribute", 9) == 0) ||
+						(mu_strncmp(&code[token.index], "writeonly", 9) == 0) ||
+						(mu_strncmp(&code[token.index], "invariant", 9) == 0) ||
+						(mu_strncmp(&code[token.index], "precision", 9) == 0) ||
+						(mu_strncmp(&code[token.index], "sampler1D", 9) == 0) ||
+						(mu_strncmp(&code[token.index], "sampler2D", 9) == 0) ||
+						(mu_strncmp(&code[token.index], "sampler3D", 9) == 0) ||
+						(mu_strncmp(&code[token.index], "imageCube", 9) == 0) ||
+						(mu_strncmp(&code[token.index], "image2DMS", 9) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 10: {
+					if (
+						(mu_strncmp(&code[token.index], "subroutine", 10) == 0) ||
+						(mu_strncmp(&code[token.index], "isampler1D", 10) == 0) ||
+						(mu_strncmp(&code[token.index], "isampler2D", 10) == 0) ||
+						(mu_strncmp(&code[token.index], "isampler3D", 10) == 0) ||
+						(mu_strncmp(&code[token.index], "usampler1D", 10) == 0) ||
+						(mu_strncmp(&code[token.index], "usampler2D", 10) == 0) ||
+						(mu_strncmp(&code[token.index], "usampler3D", 10) == 0) ||
+						(mu_strncmp(&code[token.index], "iimageCube", 10) == 0) ||
+						(mu_strncmp(&code[token.index], "uimageCube", 10) == 0) ||
+						(mu_strncmp(&code[token.index], "iimage2DMS", 10) == 0) ||
+						(mu_strncmp(&code[token.index], "uimage2DMS", 10) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 11: {
+					if (
+						(mu_strncmp(&code[token.index], "atomic_uint", 11) == 0) ||
+						(mu_strncmp(&code[token.index], "samplerCube", 11) == 0) ||
+						(mu_strncmp(&code[token.index], "sampler2DMS", 11) == 0) ||
+						(mu_strncmp(&code[token.index], "image2DRect", 11) == 0) ||
+						(mu_strncmp(&code[token.index], "imageBuffer", 11) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 12: {
+					if (
+						(mu_strncmp(&code[token.index], "isamplerCube", 12) == 0) ||
+						(mu_strncmp(&code[token.index], "usamplerCube", 12) == 0) ||
+						(mu_strncmp(&code[token.index], "isampler2DMS", 12) == 0) ||
+						(mu_strncmp(&code[token.index], "usampler2DMS", 12) == 0) ||
+						(mu_strncmp(&code[token.index], "iimage2DRect", 12) == 0) ||
+						(mu_strncmp(&code[token.index], "uimage2DRect", 12) == 0) ||
+						(mu_strncmp(&code[token.index], "iimageBuffer", 12) == 0) ||
+						(mu_strncmp(&code[token.index], "uimageBuffer", 12) == 0) ||
+						(mu_strncmp(&code[token.index], "image1DArray", 12) == 0) ||
+						(mu_strncmp(&code[token.index], "image2DArray", 12) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 13: {
+					if (
+						(mu_strncmp(&code[token.index], "noperspective", 13) == 0) ||
+						(mu_strncmp(&code[token.index], "sampler2DRect", 13) == 0) ||
+						(mu_strncmp(&code[token.index], "samplerBuffer", 13) == 0) ||
+						(mu_strncmp(&code[token.index], "iimage1DArray", 13) == 0) ||
+						(mu_strncmp(&code[token.index], "uimage1DArray", 13) == 0) ||
+						(mu_strncmp(&code[token.index], "iimage2DArray", 13) == 0) ||
+						(mu_strncmp(&code[token.index], "uimage2DArray", 13) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 14: {
+					if (
+						(mu_strncmp(&code[token.index], "sampler1DArray", 14) == 0) ||
+						(mu_strncmp(&code[token.index], "sampler2DArray", 14) == 0) ||
+						(mu_strncmp(&code[token.index], "isampler2DRect", 14) == 0) ||
+						(mu_strncmp(&code[token.index], "usampler2DRect", 14) == 0) ||
+						(mu_strncmp(&code[token.index], "isamplerBuffer", 14) == 0) ||
+						(mu_strncmp(&code[token.index], "usamplerBuffer", 14) == 0) ||
+						(mu_strncmp(&code[token.index], "imageCubeArray", 14) == 0) ||
+						(mu_strncmp(&code[token.index], "image2DMSArray", 14) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 15: {
+					if (
+						(mu_strncmp(&code[token.index], "sampler1DShadow", 15) == 0) ||
+						(mu_strncmp(&code[token.index], "sampler2DShadow", 15) == 0) ||
+						(mu_strncmp(&code[token.index], "isampler1DArray", 15) == 0) ||
+						(mu_strncmp(&code[token.index], "isampler2DArray", 15) == 0) ||
+						(mu_strncmp(&code[token.index], "usampler1DArray", 15) == 0) ||
+						(mu_strncmp(&code[token.index], "usampler2DArray", 15) == 0) ||
+						(mu_strncmp(&code[token.index], "iimageCubeArray", 15) == 0) ||
+						(mu_strncmp(&code[token.index], "uimageCubeArray", 15) == 0) ||
+						(mu_strncmp(&code[token.index], "iimage2DMSArray", 15) == 0) ||
+						(mu_strncmp(&code[token.index], "uimage2DMSArray", 15) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 16: {
+					if (
+						(mu_strncmp(&code[token.index], "sampler2DMSArray", 16) == 0) ||
+						(mu_strncmp(&code[token.index], "samplerCubeArray", 16) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 17: {
+					if (
+						(mu_strncmp(&code[token.index], "samplerCubeShadow", 17) == 0) ||
+						(mu_strncmp(&code[token.index], "isampler2DMSArray", 17) == 0) ||
+						(mu_strncmp(&code[token.index], "usampler2DMSArray", 17) == 0) ||
+						(mu_strncmp(&code[token.index], "isamplerCubeArray", 17) == 0) ||
+						(mu_strncmp(&code[token.index], "usamplerCubeArray", 17) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 19: {
+					if (
+						(mu_strncmp(&code[token.index], "sampler2DRectShadow", 19) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 20: {
+					if (
+						(mu_strncmp(&code[token.index], "sampler1DArrayShadow", 20) == 0) ||
+						(mu_strncmp(&code[token.index], "sampler2DArrayShadow", 20) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+				case 22: {
+					if (
+						(mu_strncmp(&code[token.index], "samplerCubeArrayShadow", 22) == 0)
+					) {
+						token.type = MUVGC_TOKEN_KEYWORD;
+					}
+				} break;
+			}
+
+			// (reserved keywords)
+			if (token.type == MUVGC_TOKEN_IDENTIFIER) {
+				switch (token.length) {
+					default: break;
+					case 3: {
+						if (
+							(mu_strncmp(&code[token.index], "asm", 3) == 0)
+						) {
+							token.type = MUVGC_TOKEN_RESERVED_KEYWORD;
+						}
+					} break;
+					case 4: {
+						if (
+							(mu_strncmp(&code[token.index], "enum", 4) == 0) ||
+							(mu_strncmp(&code[token.index], "this", 4) == 0) ||
+							(mu_strncmp(&code[token.index], "goto", 4) == 0) ||
+							(mu_strncmp(&code[token.index], "long", 4) == 0) ||
+							(mu_strncmp(&code[token.index], "half", 4) == 0) ||
+							(mu_strncmp(&code[token.index], "cast", 4) == 0)
+						) {
+							token.type = MUVGC_TOKEN_RESERVED_KEYWORD;
+						}
+					} break;
+					case 5: {
+						if (
+							(mu_strncmp(&code[token.index], "class", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "union", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "short", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "fixed", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "input", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "hvec2", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "hvec3", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "hvec4", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "fvec2", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "fvec3", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "fvec4", 5) == 0) ||
+							(mu_strncmp(&code[token.index], "using", 5) == 0)
+						) {
+							token.type = MUVGC_TOKEN_RESERVED_KEYWORD;
+						}
+					} break;
+					case 6: {
+						if (
+							(mu_strncmp(&code[token.index], "common", 6) == 0) ||
+							(mu_strncmp(&code[token.index], "active", 6) == 0) ||
+							(mu_strncmp(&code[token.index], "inline", 6) == 0) ||
+							(mu_strncmp(&code[token.index], "public", 6) == 0) ||
+							(mu_strncmp(&code[token.index], "static", 6) == 0) ||
+							(mu_strncmp(&code[token.index], "extern", 6) == 0) ||
+							(mu_strncmp(&code[token.index], "superp", 6) == 0) ||
+							(mu_strncmp(&code[token.index], "output", 6) == 0) ||
+							(mu_strncmp(&code[token.index], "filter", 6) == 0) ||
+							(mu_strncmp(&code[token.index], "sizeof", 6) == 0)
+						) {
+							token.type = MUVGC_TOKEN_RESERVED_KEYWORD;
+						}
+					} break;
+					case 7: {
+						if (
+							(mu_strncmp(&code[token.index], "typedef", 7) == 0)
+						) {
+							token.type = MUVGC_TOKEN_RESERVED_KEYWORD;
+						}
+					} break;
+					case 8: {
+						if (
+							(mu_strncmp(&code[token.index], "template", 8) == 0) ||
+							(mu_strncmp(&code[token.index], "resource", 8) == 0) ||
+							(mu_strncmp(&code[token.index], "noinline", 8) == 0) ||
+							(mu_strncmp(&code[token.index], "external", 8) == 0) ||
+							(mu_strncmp(&code[token.index], "unsigned", 8) == 0)
+						) {
+							token.type = MUVGC_TOKEN_RESERVED_KEYWORD;
+						}
+					} break;
+					case 9: {
+						if (
+							(mu_strncmp(&code[token.index], "partition", 9) == 0) ||
+							(mu_strncmp(&code[token.index], "interface", 9) == 0) ||
+							(mu_strncmp(&code[token.index], "namespace", 9) == 0)
+						) {
+							token.type = MUVGC_TOKEN_RESERVED_KEYWORD;
+						}
+					} break;
+					case 13: {
+						if (
+							(mu_strncmp(&code[token.index], "sampler3DRect", 13) == 0)
+						) {
+							token.type = MUVGC_TOKEN_RESERVED_KEYWORD;
+						}
+					} break;
+				}
+			}
+		}
+
+		// Check if it's an integer/float constant
+		if (
+			(code[index] == '.' && code[index+1] >= '0' && code[index+1] <= '9') ||
+			(code[index] >= '0' && code[index] <= '9')
+		) {
+			if (code[index] == '.') {
+				token.type = MUVGC_TOKEN_FLOAT_CONSTANT;
+			} else {
+				token.type = MUVGC_TOKEN_INTEGER_CONSTANT;
+			}
+
+			while (
+				(code[token.index+token.length] >= '0' && code[token.index+token.length] <= '9') ||
+				(code[token.index+token.length] == '.' && token.type == MUVGC_TOKEN_INTEGER_CONSTANT)
+			) {
+				if (code[token.index+token.length] == '.' && token.type == MUVGC_TOKEN_INTEGER_CONSTANT) {
+					token.type = MUVGC_TOKEN_FLOAT_CONSTANT;
+				}
+				token.length++;
+			}
+
+			if (
+				token.type == MUVGC_TOKEN_FLOAT_CONSTANT && 
+				(code[token.index+token.length] == 'f' || code[token.index+token.length] == 'F')
+			) {
+				token.length++;
+			} else if (
+				token.type == MUVGC_TOKEN_FLOAT_CONSTANT &&
+				(
+					mu_strncmp(&code[token.index+token.length], "lf", 2) == 0 ||
+					mu_strncmp(&code[token.index+token.length], "lF", 2) == 0 ||
+					mu_strncmp(&code[token.index+token.length], "Lf", 2) == 0 ||
+					mu_strncmp(&code[token.index+token.length], "LF", 2) == 0
+				)
+			) {
+				token.type = MUVGC_TOKEN_DOUBLE_CONSTANT;
+				token.length += 2;
+			}
+		}
+
+		// Single-character tokens
+		switch (code[token.index]) {
+			default: break;
+			case '.': {
+				token.type = MUVGC_TOKEN_PERIOD;
+			} break;
+			case '+': {
+				token.type = MUVGC_TOKEN_PERIOD;
+			} break;
+			case '-': {
+				token.type = MUVGC_TOKEN_DASH;
+			} break;
+			case '/': {
+				token.type = MUVGC_TOKEN_SLASH;
+			} break;
+			case '*': {
+				token.type = MUVGC_TOKEN_ASTERIK;
+			} break;
+			case '%': {
+				token.type = MUVGC_TOKEN_PERCENT;
+			} break;
+			case '<': {
+				token.type = MUVGC_TOKEN_LESS_THAN_ANGLED_BRACKET;
+			} break;
+			case '>': {
+				token.type = MUVGC_TOKEN_GREATER_THAN_ANGLED_BRACKET;
+			} break;
+			case '[': {
+				token.type = MUVGC_TOKEN_OPEN_SQUARE_BRACKET;
+			} break;
+			case ']': {
+				token.type = MUVGC_TOKEN_CLOSE_SQUARE_BRACKET;
+			} break;
+			case '(': {
+				token.type = MUVGC_TOKEN_OPEN_PARENTHESIS;
+			} break;
+			case ')': {
+				token.type = MUVGC_TOKEN_CLOSE_PARENTHESIS;
+			} break;
+			case '{': {
+				token.type = MUVGC_TOKEN_OPEN_BRACE;
+			} break;
+			case '}': {
+				token.type = MUVGC_TOKEN_CLOSE_BRACE;
+			} break;
+			case '^': {
+				token.type = MUVGC_TOKEN_CARET;
+			} break;
+			case '|': {
+				token.type = MUVGC_TOKEN_VERTICAL_BAR;
+			} break;
+			case '&': {
+				token.type = MUVGC_TOKEN_AMPERSAND;
+			} break;
+			case '~': {
+				token.type = MUVGC_TOKEN_TILDE;
+			} break;
+			case '=': {
+				token.type = MUVGC_TOKEN_EQUALS;
+			} break;
+			case '!': {
+				token.type = MUVGC_TOKEN_EXCLAMATION_POINT;
+			} break;
+			case ':': {
+				token.type = MUVGC_TOKEN_COLON;
+			} break;
+			case ';': {
+				token.type = MUVGC_TOKEN_SEMICOLON;
+			} break;
+			case ',': {
+				token.type = MUVGC_TOKEN_COMMA;
+			} break;
+			case '?': {
+				token.type = MUVGC_TOKEN_QUESTION_MARK;
+			} break;
+		}
+
+		return token;
+	}
+
+	// final handling
+
+	muVGCToken* muVGC_tokenize_code(const char* code, size_m codelen, size_m* len) {
+		// Intentionally, length is one less than necessary to not store EOF token
+		*len = 0;
+
+		// I do end up tokenizing twice, once to count how many tokens needed &
+		// once to gather the tokens again. This could be optimized, but I can't
+		// think of an immediate way...
+
+		muVGCToken token = muVGC_get_token(code, codelen, muVGC_get_next_non_empty_char(code, codelen, 0));
+		while (token.type != MUVGC_TOKEN_END_OF_FILE) {
+			if (token.type == MUVGC_TOKEN_UNKNOWN) {
+				muVGC_print_syntax_error(code, token.index);
+				mu_print("unrecognized symbol\n");
+				return MU_NULL_PTR;
+			}
+
+			token = muVGC_get_token(code, codelen, muVGC_get_next_non_empty_char(code, codelen, token.index + token.length));
+			*len += 1;
+		}
+		
+		muVGCToken* tokens = mu_malloc(sizeof(muVGCToken) * (*len));
+
+		token = muVGC_get_token(code, codelen, muVGC_get_next_non_empty_char(code, codelen, 0));
+		tokens[0] = token;
+		size_m index = 0;
+		while (token.type != MUVGC_TOKEN_END_OF_FILE) {
+			token = muVGC_get_token(code, codelen, muVGC_get_next_non_empty_char(code, codelen, token.index + token.length));
+			index++;
+			if (token.type != MUVGC_TOKEN_END_OF_FILE) {
+				tokens[index] = token;
+			}
+		}
+
+		/*for (size_m i = 0; i < *len; i++) {
+			muVGC_print_token_type(tokens[i].type);
+			mu_print(" ( '");
+			for (size_m j = 0; j < tokens[i].length; j++) {
+				mu_printf("%c", code[tokens[i].index+j]);
+			}
+			mu_print("' )");
+			mu_print("\n");
+		}*/
+
+		return tokens;
+	}
+
 /* API-LEVEL FUNCS */
 
 	MUDEF muString mu_compile_vulkan_glsl(muResult* result, const char* code, muVGCShader shader) {
@@ -1414,6 +2081,8 @@ extern "C" { // }
 		muString bytecode_str = mu_string_create_raw((char*)"\0", 1);
 		bytecode_str = mu_string_delete(bytecode_str, 0, 1);
 
+		// Handle comments
+
 		muVGC_handle_comments(&res, code_str);
 		if (res != MU_SUCCESS) {
 			if (result != MU_NULL_PTR) {
@@ -1424,6 +2093,8 @@ extern "C" { // }
 			bytecode_str = mu_string_destroy(bytecode_str);
 			return (muString){ 0 };
 		}
+
+		// Handle macros
 
 		bytecode_str = muVGC_handle_macros(&res, code_str, bytecode_str, shader);
 		if (res != MU_SUCCESS) {
@@ -1436,6 +2107,21 @@ extern "C" { // }
 			return (muString){ 0 };
 		}
 
+		// Tokenize code
+
+		size_m token_len = 0;
+		muVGCToken* tokens = muVGC_tokenize_code(code_str.s, mu_string_strlen(code_str), &token_len);
+		if (tokens == MU_NULL_PTR) {
+			if (result != MU_NULL_PTR) {
+				*result = MU_FAILURE;
+			}
+
+			code_str = mu_string_destroy(code_str);
+			bytecode_str = mu_string_destroy(bytecode_str);
+			return (muString){ 0 };
+		}
+
+		mu_free(tokens);
 		code_str = mu_string_destroy(code_str);
 		return bytecode_str;
 	}
