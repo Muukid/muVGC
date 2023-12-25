@@ -1036,10 +1036,12 @@ extern "C" { // }
 
 	size_m muVGC_get_line_of_code(const char* s, size_m index) {
 		size_m len = mu_strlen(s);
-		size_m linecount = 0;
+		size_m linecount = 1;
 		for (size_m i = 0; i < len; i++) {
 			if (s[i] == '\n') {
 				linecount++;
+			} else if (s[i] == '\\' && s[i+1] == '\n') {
+				index += 2;
 			}
 			if (i == index) {
 				return linecount;
@@ -1057,6 +1059,8 @@ extern "C" { // }
 			if (s[i] == '\n') {
 				linecount++;
 				char_count = 0;
+			} else if (s[i] == '\\' && s[i+1] == '\n') {
+				index += 2;
 			}
 			if (i == index) {
 				return char_count;
@@ -1175,35 +1179,55 @@ extern "C" { // }
 		}
 	}
 
-	void muVGC_handle_comments(muResult* result, muString code) {
+	muString muVGC_handle_line_continuation(muResult* result, muString code) {
+		for (int64_m i = 0; i < mu_string_strlen(code); i++) {
+			if (mu_here(code.s, "\\\n", i)) {
+				code = mu_string_delete(code, i, i+2);
+				i--;
+			} else if (code.s[i] == '\\') {
+				// This is a little bit strict, as many like to put a space or two after,
+				// but eh
+				muVGC_print_syntax_error(code.s, i);
+				mu_print("incorrect usage of line continuation, expected newline to follow after '\\'\n");
+				*result = MU_FAILURE;
+				return code;
+			}
+		}
+
+		return code;
+	}
+
+	muString muVGC_handle_comments(muResult* result, muString code) {
 		if (muVGC_error_check_comments(code) != MU_SUCCESS) {
 			*result = MU_FAILURE;
-			return;
+			return code;
 		}
 
 		muVGC_empty_comments(code);
+
+		return muVGC_handle_line_continuation(result, code);
 	}
 
 /* MACRO HANDLING */
 
-	muResult muVGC_is_version_valid(muString code, size_m* number_index, size_m* beg, size_m* end) {
+	muResult muVGC_is_version_valid(muString code, const char* og, size_m* number_index, size_m* beg, size_m* end) {
 		size_m i = muVGC_get_next_non_empty_char(code.s, mu_string_strlen(code), 0);
 		if (i >= mu_string_strlen(code)) {
-			muVGC_print_syntax_error(code.s, 0);
+			muVGC_print_syntax_error(og, 0);
 			mu_print("string passed contains no readable code\n");
 			return MU_FAILURE;
 		}
 
 		*beg = i;
 		if (code.s[i] != '#') {
-			muVGC_print_syntax_error(code.s, i);
+			muVGC_print_syntax_error(og, i);
 			mu_print("expected '#' as first token to specify version\n");
 			return MU_FAILURE;
 		}
 
 		i = muVGC_get_next_non_space(code.s, mu_string_strlen(code), i+1);
 		if ((i+8 >= mu_string_strlen(code)) || (mu_strncmp(&code.s[i], "version ", 8) != 0)) {
-			muVGC_print_syntax_error(code.s, i);
+			muVGC_print_syntax_error(og, i);
 			mu_print("expected 'version' after token '#'\n");
 			return MU_FAILURE;
 		}
@@ -1211,7 +1235,7 @@ extern "C" { // }
 		i = muVGC_get_next_non_space(code.s, mu_string_strlen(code), i+7);
 		*number_index = i;
 		if (i >= mu_string_strlen(code) || (code.s[i] >= '0' && code.s[i] <= '9') == MU_FALSE) {
-			muVGC_print_syntax_error(code.s, i);
+			muVGC_print_syntax_error(og, i);
 			mu_print("expected number after '#version'\n");
 			return MU_FAILURE;
 		}
@@ -1219,7 +1243,7 @@ extern "C" { // }
 		size_m end_i = muVGC_get_next_empty_char(code.s, mu_string_strlen(code), i);
 		for (size_m j = i; j < end_i; j++) {
 			if ((code.s[j] >= '0' && code.s[j] <= '9') == MU_FALSE) {
-				muVGC_print_syntax_error(code.s, i);
+				muVGC_print_syntax_error(og, i);
 				mu_print("expected number after '#version'\n");
 				return MU_FAILURE;
 			}
@@ -1234,7 +1258,7 @@ extern "C" { // }
 
 		end_i = muVGC_get_next_empty_char(code.s, mu_string_strlen(code), i);
 		if ((end_i-i != 4) || (mu_strncmp(&code.s[i], "core", 4) != 0)) {
-			muVGC_print_syntax_error(code.s, i);
+			muVGC_print_syntax_error(og, i);
 			mu_print("expected anything after '#version N' to be 'core'\n");
 			return MU_FAILURE;
 		}
@@ -1243,7 +1267,7 @@ extern "C" { // }
 		end_i = muVGC_get_next_new_line(code.s, mu_string_strlen(code), end_i);
 		for (size_m j = i; j < end_i; j++) {
 			if (muVGC_is_character_empty(code.s[j]) == MU_FALSE) {
-				muVGC_print_syntax_error(code.s, j);
+				muVGC_print_syntax_error(og, j);
 				mu_print("expected only newline after version directive\n");
 				return MU_FAILURE;
 			}
@@ -1364,9 +1388,9 @@ extern "C" { // }
 		return bytecode;
 	}
 
-	muString muVGC_macro_handle_version(muResult* result, muString code, muString bytecode, muVGCShader shader) {
+	muString muVGC_macro_handle_version(muResult* result, muString code, const char* og, muString bytecode, muVGCShader shader) {
 		size_m number_index = 0, beg = 0, end = 0;
-		if (muVGC_is_version_valid(code, &number_index, &beg, &end) != MU_SUCCESS) {
+		if (muVGC_is_version_valid(code, og, &number_index, &beg, &end) != MU_SUCCESS) {
 			*result = MU_FAILURE;
 			return bytecode;
 		}
@@ -1390,10 +1414,10 @@ extern "C" { // }
 		return bytecode;
 	}
 
-	muString muVGC_handle_macros(muResult* result, muString code, muString bytecode, muVGCShader shader) {
+	muString muVGC_handle_macros(muResult* result, muString code, const char* og, muString bytecode, muVGCShader shader) {
 		muResult res = MU_SUCCESS;
 
-		bytecode = muVGC_macro_handle_version(&res, code, bytecode, shader);
+		bytecode = muVGC_macro_handle_version(&res, code, og, bytecode, shader);
 		if (res != MU_SUCCESS) {
 			*result = MU_FAILURE;
 			return bytecode;
@@ -2023,7 +2047,7 @@ extern "C" { // }
 
 	// final handling
 
-	muVGCToken* muVGC_tokenize_code(const char* code, size_m codelen, size_m* len) {
+	muVGCToken* muVGC_tokenize_code(const char* code, size_m codelen, const char* og, size_m* len) {
 		// Intentionally, length is one less than necessary to not store EOF token
 		*len = 0;
 
@@ -2034,7 +2058,7 @@ extern "C" { // }
 		muVGCToken token = muVGC_get_token(code, codelen, muVGC_get_next_non_empty_char(code, codelen, 0));
 		while (token.type != MUVGC_TOKEN_END_OF_FILE) {
 			if (token.type == MUVGC_TOKEN_UNKNOWN) {
-				muVGC_print_syntax_error(code, token.index);
+				muVGC_print_syntax_error(og, token.index);
 				mu_print("unrecognized symbol\n");
 				return MU_NULL_PTR;
 			}
@@ -2083,7 +2107,7 @@ extern "C" { // }
 
 		// Handle comments
 
-		muVGC_handle_comments(&res, code_str);
+		code_str = muVGC_handle_comments(&res, code_str);
 		if (res != MU_SUCCESS) {
 			if (result != MU_NULL_PTR) {
 				*result = MU_FAILURE;
@@ -2096,7 +2120,7 @@ extern "C" { // }
 
 		// Handle macros
 
-		bytecode_str = muVGC_handle_macros(&res, code_str, bytecode_str, shader);
+		bytecode_str = muVGC_handle_macros(&res, code_str, code, bytecode_str, shader);
 		if (res != MU_SUCCESS) {
 			if (result != MU_NULL_PTR) {
 				*result = MU_FAILURE;
@@ -2110,7 +2134,7 @@ extern "C" { // }
 		// Tokenize code
 
 		size_m token_len = 0;
-		muVGCToken* tokens = muVGC_tokenize_code(code_str.s, mu_string_strlen(code_str), &token_len);
+		muVGCToken* tokens = muVGC_tokenize_code(code_str.s, mu_string_strlen(code_str), code, &token_len);
 		if (tokens == MU_NULL_PTR) {
 			if (result != MU_NULL_PTR) {
 				*result = MU_FAILURE;
