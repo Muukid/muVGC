@@ -2067,6 +2067,10 @@ extern "C" { // }
 			*len += 1;
 		}
 		
+		if (*len == 0) {
+			mu_print("[muVGC] Syntax error; expected at least one token after version\n");
+			return MU_NULL_PTR;
+		}
 		muVGCToken* tokens = mu_malloc(sizeof(muVGCToken) * (*len));
 
 		token = muVGC_get_token(code, codelen, muVGC_get_next_non_empty_char(code, codelen, 0));
@@ -2101,7 +2105,7 @@ extern "C" { // }
 		return (char*)&code[token.index];
 	}
 
-/* ERROR CHECKING */
+/* STATEMENT HANDLING */
 
 	// Statements
 
@@ -2153,7 +2157,7 @@ extern "C" { // }
 	};
 	#define MUVGC_GLOBAL_STATEMENT_COUNT (sizeof(muVGC_global_statements)/sizeof(muVGCStatement))
 
-	// Statement handling
+	// Statement retrieving
 
 	size_m muVGC_get_statement_length(size_m index) {
 		if (index < MUVGC_GLOBAL_STATEMENT_COUNT) {
@@ -2183,7 +2187,7 @@ extern "C" { // }
 				}
 			}
 
-			if (good == MU_TRUE && max_j > best_token_count) {
+			if (good == MU_TRUE && max_j > best_token_count && muVGC_global_statements[i].tokens[max_j+1] == 0) {
 				best_index = i;
 				best_token_count = max_j;
 			}
@@ -2192,25 +2196,55 @@ extern "C" { // }
 		return best_index;
 	}
 
-	// @DEBUG
-	void muVGC_print_statements(const char* code, muVGCToken* tokens, size_m count) {
-		// void muVGC_print_statement_type(muVGCStatementType type)
-		for (size_m i = 0; i < count;) {
-			size_m statement = muVGC_get_statement(code, &tokens[i], count-i);
+	size_m* muVGC_get_statements(const char* code, muVGCToken* tokens, size_m token_len, size_m* statement_len) {
+		// Similar issue to retrieving tokens, as I have to do the process twice
+
+		size_m statement_count = 0;
+
+		for (size_m i = 0; i < token_len;) {
+			size_m statement = muVGC_get_statement(code, &tokens[i], token_len-i);
 			if (statement >= MUVGC_GLOBAL_STATEMENT_COUNT) {
-				mu_print("unknown\n");
+				// Most unhelpful error message in the world, might
+				// want to find a way to print more helpful info
+				muVGC_print_syntax_error(code, tokens[i].index);
+				mu_print("unrecognized statement\n");
+
+				return MU_NULL_PTR;
 			} else {
-				muVGC_print_statement_type(muVGC_global_statements[statement].type);
-				mu_print("\n");
+				statement_count++;
 				i += muVGC_get_statement_length(statement);
 			}
-			while (statement >= MUVGC_GLOBAL_STATEMENT_COUNT && i < count) {
-				i++;
-				if (i < count) {
-					statement = muVGC_get_statement(code, &tokens[i], count-i);
-				}
-			}
 		}
+
+		size_m* statements = mu_malloc(sizeof(size_m) * statement_count);
+		*statement_len = statement_count;
+		statement_count = 0;
+
+		for (size_m i = 0; i < token_len;) {
+			size_m statement = muVGC_get_statement(code, &tokens[i], token_len-i);
+			statements[statement_count] = statement;
+			statement_count++;
+			i += muVGC_get_statement_length(statement);
+		}
+
+		return statements;
+	}
+
+	// Statement handling
+
+	muString muVGC_statement_handle(muResult* result, muVGCToken* tokens, muString bytecode, const char* code, size_m statement) {
+		mu_print("handling ");
+		muVGC_print_statement_type(muVGC_global_statements[statement].type);
+		mu_print("...\n");
+
+		// Having all of these in one big switch statement isn't the
+		// cleanest approach, but I can't really think of anything
+		// better......... :'(
+		switch (muVGC_global_statements[statement].type) {
+			default: mu_print("unrecognized or unimplemented statement; issues may occur\n"); break;
+		}
+
+		return bytecode;
 	}
 
 /* API-LEVEL FUNCS */
@@ -2265,8 +2299,24 @@ extern "C" { // }
 			return (muString){ 0 };
 		}
 
-		muVGC_print_statements(code_str.s, tokens, token_len);
+		// Get code statements
 
+		size_m statement_len = 0;
+		size_m* statements = muVGC_get_statements(code_str.s, tokens, token_len, &statement_len);
+
+		if (statements == MU_NULL_PTR) {
+			if (result != MU_NULL_PTR) {
+				*result = MU_FAILURE;
+			}
+			mu_free(tokens);
+			code_str = mu_string_destroy(code_str);
+			bytecode_str = mu_string_destroy(bytecode_str);
+			return (muString){ 0 };
+		}
+
+		
+
+		mu_free(statements);
 		mu_free(tokens);
 		code_str = mu_string_destroy(code_str);
 		return bytecode_str;
