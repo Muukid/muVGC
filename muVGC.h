@@ -2093,6 +2093,126 @@ extern "C" { // }
 		return tokens;
 	}
 
+	// This function exists for now because I'll most likely add a way for
+	// macros to override token values without messing up original code
+	// spacing, essentially taking advantage of the tokens to store the
+	// original code positioning
+	char* muVGC_get_token_value(const char* code, muVGCToken token) {
+		return (char*)&code[token.index];
+	}
+
+/* ERROR CHECKING */
+
+	// Statements
+
+	enum muVGCStatementType {
+		MUVGC_STATEMENT_UNKNOWN,
+		MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION,
+		MUVGC_STATEMENT_SCOPE_CLOSE
+	};
+	typedef enum muVGCStatementType muVGCStatementType;
+
+	// @DEBUG
+	void muVGC_print_statement_type(muVGCStatementType type) {
+		switch (type) {
+			default: mu_print("unknown"); break;
+			case MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION: mu_print("function implementation"); break;
+			case MUVGC_STATEMENT_SCOPE_CLOSE: mu_print("scope close"); break;
+		}
+	}
+
+	#define MUVGC_STATEMENT_TOKEN_BUFFER 16
+
+	struct muVGCStatement {
+		muVGCStatementType type;
+		muVGCTokenType tokens[MUVGC_STATEMENT_TOKEN_BUFFER];
+	};
+	typedef struct muVGCStatement muVGCStatement;
+
+	const muVGCStatement muVGC_global_statements[] = {
+		{ MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION, { 
+			MUVGC_TOKEN_IDENTIFIER, 
+			MUVGC_TOKEN_IDENTIFIER,
+			MUVGC_TOKEN_OPEN_PARENTHESIS,
+			MUVGC_TOKEN_CLOSE_PARENTHESIS,
+			MUVGC_TOKEN_OPEN_BRACE,
+			0 }
+		},
+		{ MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION, { 
+			MUVGC_TOKEN_KEYWORD, 
+			MUVGC_TOKEN_IDENTIFIER,
+			MUVGC_TOKEN_OPEN_PARENTHESIS,
+			MUVGC_TOKEN_CLOSE_PARENTHESIS,
+			MUVGC_TOKEN_OPEN_BRACE,
+			0 }
+		},
+		{ MUVGC_STATEMENT_SCOPE_CLOSE, { 
+			MUVGC_TOKEN_CLOSE_BRACE,
+			0 }
+		}
+	};
+	#define MUVGC_GLOBAL_STATEMENT_COUNT (sizeof(muVGC_global_statements)/sizeof(muVGCStatement))
+
+	// Statement handling
+
+	size_m muVGC_get_statement_length(size_m index) {
+		if (index < MUVGC_GLOBAL_STATEMENT_COUNT) {
+			size_m len = 0;
+			while (muVGC_global_statements[index].tokens[len] != 0) {
+				len++;
+			}
+			return len;
+		}
+		return 0;
+	}
+
+	size_m muVGC_get_statement(const char* code, muVGCToken* tokens, size_m count) {
+		size_m best_index = MUVGC_GLOBAL_STATEMENT_COUNT;
+		int64_m best_token_count = -1;
+
+		for (size_m i = 0; i < MUVGC_GLOBAL_STATEMENT_COUNT; i++) {
+			muBool good = MU_TRUE;
+			int64_m max_j = 0;
+
+			for (size_m j = 0; j < MUVGC_STATEMENT_TOKEN_BUFFER && muVGC_global_statements[i].tokens[j] != 0 && j < count; j++) {
+				max_j = j;
+
+				if (tokens[j].type != muVGC_global_statements[i].tokens[j]) {
+					good = MU_FALSE;
+					break;
+				}
+			}
+
+			if (good == MU_TRUE && max_j > best_token_count) {
+				best_index = i;
+				best_token_count = max_j;
+			}
+		}
+
+		return best_index;
+	}
+
+	// @DEBUG
+	void muVGC_print_statements(const char* code, muVGCToken* tokens, size_m count) {
+		// void muVGC_print_statement_type(muVGCStatementType type)
+		for (size_m i = 0; i < count;) {
+			size_m statement = muVGC_get_statement(code, &tokens[i], count-i);
+			if (statement >= MUVGC_GLOBAL_STATEMENT_COUNT) {
+				mu_print("unknown\n");
+			} else {
+				muVGC_print_statement_type(muVGC_global_statements[statement].type);
+				mu_print("\n");
+				i += muVGC_get_statement_length(statement);
+			}
+			while (statement >= MUVGC_GLOBAL_STATEMENT_COUNT && i < count) {
+				i++;
+				if (i < count) {
+					statement = muVGC_get_statement(code, &tokens[i], count-i);
+				}
+			}
+		}
+	}
+
 /* API-LEVEL FUNCS */
 
 	MUDEF muString mu_compile_vulkan_glsl(muResult* result, const char* code, muVGCShader shader) {
@@ -2144,6 +2264,8 @@ extern "C" { // }
 			bytecode_str = mu_string_destroy(bytecode_str);
 			return (muString){ 0 };
 		}
+
+		muVGC_print_statements(code_str.s, tokens, token_len);
 
 		mu_free(tokens);
 		code_str = mu_string_destroy(code_str);
