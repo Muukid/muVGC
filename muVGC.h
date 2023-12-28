@@ -2105,14 +2105,17 @@ extern "C" { // }
 		return (char*)&code[token.index];
 	}
 
-/* STATEMENT HANDLING */
+/* STATEMENT TYPE HANDLING */
 
-	// Statements
+	// Statement types
 
 	enum muVGCStatementType {
-		MUVGC_STATEMENT_UNKNOWN,
-		MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION,
-		MUVGC_STATEMENT_SCOPE_CLOSE
+		MUVGC_STATEMENT_UNKNOWN=0,
+		MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION=1,
+		MUVGC_STATEMENT_SCOPE_CLOSE=2
+
+		#define MUVGC_STATEMENT_FIRST MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION
+		#define MUVGC_STATEMENT_LAST  MUVGC_STATEMENT_SCOPE_CLOSE
 	};
 	typedef enum muVGCStatementType muVGCStatementType;
 
@@ -2125,127 +2128,211 @@ extern "C" { // }
 		}
 	}
 
-	#define MUVGC_STATEMENT_TOKEN_BUFFER 16
+	// Statement type handling
+
+	muResult muVGC_check_statement_type(muResult* result,
+		muVGCStatementType type, muVGCToken* tokens, 
+		size_m token_len, const char* code, const char* og, size_m* length) {
+
+		switch (type) {
+			default: {
+				muVGC_print_syntax_error(og, tokens[0].index);
+				mu_print("unexpected token '");
+				muVGC_print_token_type(tokens[0].type);
+				mu_print("\n");
+				*result = MU_FAILURE;
+				return MU_FAILURE;
+			} break;
+
+			case MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION: {
+				// A A(...
+				if (token_len > 3) {
+					if (
+						(tokens[0].type == MUVGC_TOKEN_KEYWORD || tokens[0].type == MUVGC_TOKEN_IDENTIFIER) &&
+						(tokens[1].type == MUVGC_TOKEN_IDENTIFIER) &&
+						(tokens[2].type == MUVGC_TOKEN_OPEN_PARENTHESIS)
+					) {
+						// A A(...,... ...)
+						size_m i = 3;
+						while (tokens[i].type != MUVGC_TOKEN_CLOSE_PARENTHESIS) {
+							// Qualifiers
+							size_m qualifier_count = 0;
+							while (
+								tokens[i+qualifier_count].type == MUVGC_TOKEN_KEYWORD &&
+								((tokens[i+qualifier_count].length == 5 && mu_strncmp(muVGC_get_token_value(code, tokens[i+qualifier_count]), "const", 5) == 0) ||
+								(tokens[i+qualifier_count].length == 2 && mu_strncmp(muVGC_get_token_value(code, tokens[i+qualifier_count]), "in", 2) == 0) ||
+								(tokens[i+qualifier_count].length == 3 && mu_strncmp(muVGC_get_token_value(code, tokens[i+qualifier_count]), "out", 3) == 0) ||
+								(tokens[i+qualifier_count].length == 5 && mu_strncmp(muVGC_get_token_value(code, tokens[i+qualifier_count]), "inout", 5) == 0) ||
+								(tokens[i+qualifier_count].length == 7 && mu_strncmp(muVGC_get_token_value(code, tokens[i+qualifier_count]), "precise", 7) == 0))
+							) {
+								qualifier_count++;
+							}
+							if (qualifier_count > 2) {
+								muVGC_print_syntax_error(og, tokens[i+3].index);
+								mu_print("too many storage qualifiers\n");
+								*result = MU_FAILURE;
+								return MU_FAILURE;
+							}
+							i += qualifier_count;
+
+							// Type
+							if (tokens[i].type != MUVGC_TOKEN_KEYWORD && tokens[i].type != MUVGC_TOKEN_IDENTIFIER) {
+								muVGC_print_syntax_error(og, tokens[i].index);
+								mu_print("expected keyword or identifier\n");
+								*result = MU_FAILURE;
+								return MU_FAILURE;
+							}
+							i++;
+
+							// Name
+							if (tokens[i].type != MUVGC_TOKEN_IDENTIFIER) {
+								muVGC_print_syntax_error(og, tokens[i].index);
+								mu_print("expected identifier\n");
+								*result = MU_FAILURE;
+								return MU_FAILURE;
+							}
+							i++;
+
+							// End of parameter
+							if (tokens[i].type == MUVGC_TOKEN_COMMA) {
+								i++;
+							} else if (tokens[i].type != MUVGC_TOKEN_CLOSE_PARENTHESIS) {
+								muVGC_print_syntax_error(og, tokens[i].index);
+								mu_print("expected comma or close parenthesis\n");
+								*result = MU_FAILURE;
+								return MU_FAILURE;
+							}
+						}
+						// A A(){...
+						// A A();
+						if (tokens[i+1].type != MUVGC_TOKEN_SEMICOLON && tokens[i+1].type != MUVGC_TOKEN_OPEN_BRACE) {
+							muVGC_print_syntax_error(og, tokens[i+1].index);
+							mu_print("expected semicolon or open brace\n");
+							*result = MU_FAILURE;
+							return MU_FAILURE;
+						} else if (tokens[i+1].type == MUVGC_TOKEN_OPEN_BRACE) {
+							*length = i+2;
+							return MU_SUCCESS;
+						}
+						return MU_FAILURE;
+					}
+				}
+				return MU_FAILURE;
+			} break;
+
+			case MUVGC_STATEMENT_SCOPE_CLOSE: {
+				if (tokens[0].type == MUVGC_TOKEN_CLOSE_BRACE) {
+					*length = 1;
+					return MU_SUCCESS;
+				}
+				return MU_FAILURE;
+			} break;
+		}
+	}
+
+	muString muVGC_execute_statement_type(
+		muResult* result, muVGCStatementType type, muVGCToken* tokens, 
+		size_m token_len, const char* code, const char* og, muString bytecode) {
+
+		switch (type) {
+			default: *result = MU_FAILURE; return bytecode; break;
+
+			case MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION: {
+				return bytecode;
+			} break;
+
+			case MUVGC_STATEMENT_SCOPE_CLOSE: {
+				return bytecode;
+			} break;
+		}
+	}
+
+/* STATEMENT HANDLING */
+
+	// Statement retrieval
 
 	struct muVGCStatement {
 		muVGCStatementType type;
-		muVGCTokenType tokens[MUVGC_STATEMENT_TOKEN_BUFFER];
+		size_m index;
+		size_m length;
 	};
 	typedef struct muVGCStatement muVGCStatement;
 
-	const muVGCStatement muVGC_global_statements[] = {
-		{ MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION, { 
-			MUVGC_TOKEN_IDENTIFIER, 
-			MUVGC_TOKEN_IDENTIFIER,
-			MUVGC_TOKEN_OPEN_PARENTHESIS,
-			MUVGC_TOKEN_CLOSE_PARENTHESIS,
-			MUVGC_TOKEN_OPEN_BRACE,
-			0 }
-		},
-		{ MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION, { 
-			MUVGC_TOKEN_KEYWORD, 
-			MUVGC_TOKEN_IDENTIFIER,
-			MUVGC_TOKEN_OPEN_PARENTHESIS,
-			MUVGC_TOKEN_CLOSE_PARENTHESIS,
-			MUVGC_TOKEN_OPEN_BRACE,
-			0 }
-		},
-		{ MUVGC_STATEMENT_SCOPE_CLOSE, { 
-			MUVGC_TOKEN_CLOSE_BRACE,
-			0 }
-		}
-	};
-	#define MUVGC_GLOBAL_STATEMENT_COUNT (sizeof(muVGC_global_statements)/sizeof(muVGCStatement))
+	muVGCStatement muVGC_get_statement(
+		muResult* result, muVGCToken* tokens, size_m token_len, const char* code, const char* og) {
 
-	// Statement retrieving
+		muVGCStatement statement = { 0 };
+		statement.type = MUVGC_STATEMENT_UNKNOWN;
+		muResult res = MU_SUCCESS;
 
-	size_m muVGC_get_statement_length(size_m index) {
-		if (index < MUVGC_GLOBAL_STATEMENT_COUNT) {
-			size_m len = 0;
-			while (muVGC_global_statements[index].tokens[len] != 0) {
-				len++;
-			}
-			return len;
-		}
-		return 0;
-	}
-
-	size_m muVGC_get_statement(const char* code, muVGCToken* tokens, size_m count) {
-		size_m best_index = MUVGC_GLOBAL_STATEMENT_COUNT;
-		int64_m best_token_count = -1;
-
-		for (size_m i = 0; i < MUVGC_GLOBAL_STATEMENT_COUNT; i++) {
-			muBool good = MU_TRUE;
-			int64_m max_j = 0;
-
-			for (size_m j = 0; j < MUVGC_STATEMENT_TOKEN_BUFFER && muVGC_global_statements[i].tokens[j] != 0 && j < count; j++) {
-				max_j = j;
-
-				if (tokens[j].type != muVGC_global_statements[i].tokens[j]) {
-					good = MU_FALSE;
-					break;
+		for (muVGCStatementType type = MUVGC_STATEMENT_FIRST; type <= MUVGC_STATEMENT_LAST; type++) {
+			if (muVGC_check_statement_type(&res, type, tokens, token_len, code, og, &statement.length) == MU_SUCCESS) {
+				if (res != MU_SUCCESS) {
+					*result = MU_FAILURE;
+					return statement;
 				}
-			}
 
-			if (good == MU_TRUE && max_j > best_token_count && muVGC_global_statements[i].tokens[max_j+1] == 0) {
-				best_index = i;
-				best_token_count = max_j;
+				statement.type = type;
+				statement.index = tokens[0].index;
+				return statement;
+			}
+			if (res != MU_SUCCESS) {
+				*result = MU_FAILURE;
+				return statement;
 			}
 		}
 
-		return best_index;
+		muVGC_print_syntax_error(og, tokens[0].index);
+		mu_print("unrecognized statement\n");
+
+		*result = MU_FAILURE;
+		return statement;
 	}
 
-	size_m* muVGC_get_statements(const char* code, muVGCToken* tokens, size_m token_len, size_m* statement_len) {
+	muVGCStatement* muVGC_get_statements(
+		muVGCToken* tokens, size_m token_len, const char* code, const char* og, size_m* statement_length) {
+
 		// Similar issue to retrieving tokens, as I have to do the process twice
 
-		size_m statement_count = 0;
+		muResult res = MU_SUCCESS;
+		size_m statement_len = 0;
 
 		for (size_m i = 0; i < token_len;) {
-			size_m statement = muVGC_get_statement(code, &tokens[i], token_len-i);
-			if (statement >= MUVGC_GLOBAL_STATEMENT_COUNT) {
-				// Most unhelpful error message in the world, might
-				// want to find a way to print more helpful info
-				muVGC_print_syntax_error(code, tokens[i].index);
-				mu_print("unrecognized statement\n");
+			muVGCStatement statement = muVGC_get_statement(&res, &tokens[i], token_len-i, code, og);
 
+			if (res != MU_SUCCESS) {
 				return MU_NULL_PTR;
-			} else {
-				statement_count++;
-				i += muVGC_get_statement_length(statement);
 			}
+			statement_len++;
+			i += statement.length;
 		}
 
-		size_m* statements = mu_malloc(sizeof(size_m) * statement_count);
-		*statement_len = statement_count;
-		statement_count = 0;
+		if (statement_len == 0) {
+			// Not exactly sure what would ever cause this, but allowing malloc to call will
+			// cause an immediate crash, so, yeah
+			mu_print("[muVGC] Syntax error; expected at least one statement after version\n");
+			return MU_NULL_PTR;
+		}
+		muVGCStatement* statements = mu_malloc(sizeof(muVGCStatement) * statement_len);
 
+		size_m index = 0;
 		for (size_m i = 0; i < token_len;) {
-			size_m statement = muVGC_get_statement(code, &tokens[i], token_len-i);
-			statements[statement_count] = statement;
-			statement_count++;
-			i += muVGC_get_statement_length(statement);
+			muVGCStatement statement = muVGC_get_statement(&res, &tokens[i], token_len-i, code, og);
+
+			if (res != MU_SUCCESS) {
+				mu_free(statements);
+				return MU_NULL_PTR;
+			}
+			statements[index] = statement;
+			index++;
+			i += statement.length;
 		}
 
+		*statement_length = statement_len;
 		return statements;
 	}
 
-	// Statement handling
-
-	muString muVGC_statement_handle(muResult* result, muVGCToken* tokens, muString bytecode, const char* code, size_m statement) {
-		mu_print("handling ");
-		muVGC_print_statement_type(muVGC_global_statements[statement].type);
-		mu_print("...\n");
-
-		// Having all of these in one big switch statement isn't the
-		// cleanest approach, but I can't really think of anything
-		// better......... :'(
-		switch (muVGC_global_statements[statement].type) {
-			default: mu_print("unrecognized or unimplemented statement; issues may occur\n"); break;
-		}
-
-		return bytecode;
-	}
+	// Statement execution
 
 /* API-LEVEL FUNCS */
 
@@ -2299,22 +2386,27 @@ extern "C" { // }
 			return (muString){ 0 };
 		}
 
-		// Get code statements
+		// Statement-ize code
 
 		size_m statement_len = 0;
-		size_m* statements = muVGC_get_statements(code_str.s, tokens, token_len, &statement_len);
-
+		muVGCStatement* statements = muVGC_get_statements(tokens, token_len, code_str.s, code, &statement_len);
 		if (statements == MU_NULL_PTR) {
 			if (result != MU_NULL_PTR) {
 				*result = MU_FAILURE;
 			}
+
 			mu_free(tokens);
 			code_str = mu_string_destroy(code_str);
 			bytecode_str = mu_string_destroy(bytecode_str);
 			return (muString){ 0 };
 		}
 
-		
+		for (size_m i = 0; i < statement_len; i++) {
+			muVGC_print_statement_type(statements[i].type);
+			mu_print("\n");
+		}
+
+		// Deallocate and return
 
 		mu_free(statements);
 		mu_free(tokens);
