@@ -1116,6 +1116,118 @@ extern "C" { // }
 		return index;
 	}
 
+	uint32_m muVGC_get_word(const char* b) {
+		const unsigned char* ub = (const unsigned char*)b;
+		return ub[0] + (ub[1] << 8) + (ub[2] << 16) + (ub[3] << 24);
+	}
+	int16_m muVGC_get_halfword(const char* b) {
+		const unsigned char* ub = (const unsigned char*)b;
+		return ub[0] + (ub[1] << 8);
+	}
+
+	// Instruction sections
+
+	size_m muVGC_hop_to_naming_section(muString bytecode) {
+		for (size_m i = 20; i <= mu_string_strlen(bytecode);) {
+			int instruction = muVGC_get_halfword(&bytecode.s[i]);
+			int step = muVGC_get_halfword(&bytecode.s[i+2]);
+			if (step == 0) {
+				return 20;
+			}
+
+			// Go to OpSource call
+			if (instruction == 3) {
+				i += step * 4;
+				instruction = muVGC_get_halfword(&bytecode.s[i]);
+				step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+				// Go past all calls to:
+				// OpSourceContinued, OpSource, OpSourceExtension, OpName, OpMemberName,
+				// OpString, OpLine, OpNoLine, OpModuleProcessed
+				while (i < mu_string_strlen(bytecode) && (
+					(instruction >= 2 && instruction <= 8) || 
+					(instruction == 317) || (instruction == 330))
+				) {
+					i += step * 4;
+					instruction = muVGC_get_halfword(&bytecode.s[i]);
+					step = muVGC_get_halfword(&bytecode.s[i+2]);
+				}
+
+				return i;
+			}
+
+			i += step * 4;
+		}
+
+		return 20;
+	}
+
+	size_m muVGC_hop_to_decoration_section(muString bytecode) {
+		for (size_m i = muVGC_hop_to_naming_section(bytecode); i <= mu_string_strlen(bytecode);) {
+			int instruction = muVGC_get_halfword(&bytecode.s[i]);
+			int step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+			// Go past all calls to:
+			// OpDecorate, OpMemberDecorate, OpDecorationGroup, OpGroupDecorate, OpGroupMemberDecorate,
+			// OpDecorateId, OpDecorateString, OpMemberDecorateString
+			while (i < mu_string_strlen(bytecode) && (
+				(instruction >= 71 && instruction <= 75) || 
+				(instruction == 332) || (instruction == 5632) || 
+				(instruction == 5633))
+			) {
+				i += step * 4;
+				instruction = muVGC_get_halfword(&bytecode.s[i]);
+				step = muVGC_get_halfword(&bytecode.s[i+2]);
+			}
+
+			return i;
+
+			//i += step * 4;
+		}
+
+		return 20;
+	}
+
+	size_m muVGC_hop_to_variable_section(muString bytecode) {
+		for (size_m i = muVGC_hop_to_decoration_section(bytecode); i <= mu_string_strlen(bytecode);) {
+			int instruction = muVGC_get_halfword(&bytecode.s[i]);
+			int step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+			// Go past all calls to:
+			// Type-Declaration Instructions
+			// Constant-Creation Instructions
+			// Memory Instructions
+			while (i < mu_string_strlen(bytecode) && (
+				(instruction >= 19 && instruction <= 39) || 
+				(instruction == 322) || (instruction == 327) ||
+				(instruction == 4456) || (instruction == 6086) ||
+				(instruction == 6090) ||
+
+				(instruction >= 41 && instruction <= 46) ||
+				(instruction >= 48 && instruction <= 52) ||
+				(instruction == 6091) || (instruction == 6092) ||
+
+				(instruction >= 59 && instruction <= 70) || 
+				(instruction >= 401 && instruction <= 403) ||
+				(instruction == 4457) || (instruction == 4458))
+			) {
+				i += step * 4;
+				instruction = muVGC_get_halfword(&bytecode.s[i]);
+				step = muVGC_get_halfword(&bytecode.s[i+2]);
+			}
+
+			return i;
+
+			//i += step * 4;
+		}
+
+		return 20;
+	}
+
+	size_m muVGC_hop_to_function_section(muString bytecode) {
+		return mu_string_strlen(bytecode);
+	}
+
 /* CODE MODIFICATION FUNCS */
 
 	void muVGC_clear_code(char* s, size_m beg, size_m end) {
@@ -1125,6 +1237,11 @@ extern "C" { // }
 			}
 		}
 	}
+
+	#define MUVGC_2_BYTE_LE(n) (n)&0xFF,((n)>>8)&0xFF
+	#define MUVGC_2_BYTE_LE_SET(a, n, i) (a)[(i)]=(n)&0xFF;(a)[(i)+1]=((n)>>8)&0xFF;
+	#define MUVGC_4_BYTE_LE(n) (n)&0xFF,((n)>>8)&0xFF,((n)>>16)&0xFF,((n)>>24)&0xFF
+	#define MUVGC_4_BYTE_LE_SET(a, n, i) (a)[(i)]=(n)&0xFF;(a)[(i)+1]=((n)>>8)&0xFF;(a)[(i)+2]=((n)>>16)&0xFF;(a)[(i)+3]=((n)>>24)&0xFF;
 
 /* PRINT FUNCS */
 
@@ -2105,6 +2222,168 @@ extern "C" { // }
 		return (char*)&code[token.index];
 	}
 
+/* INSTRUCTION HANDLING */
+
+	// 3.49.2 Debug Instructions
+
+	muString muVGC_op_name(muString bytecode, uint32_m id_target, char* name, size_m namelen) {
+		size_m i = muVGC_hop_to_naming_section(bytecode);
+
+		size_m datanamelen = namelen;
+		if ((datanamelen % 4) == 0) {
+			datanamelen++;
+		}
+		while (((datanamelen) % 4) != 0) {
+			datanamelen++;
+		}
+		uint16_m fulllen = (datanamelen / 4) + 2;
+
+		char b[] = {
+			5, 0, MUVGC_2_BYTE_LE(fulllen),
+			MUVGC_4_BYTE_LE(id_target)
+		};
+		bytecode = mu_string_insert_raw(bytecode, b, sizeof(b), i);
+		i += sizeof(b);
+
+		bytecode = mu_string_insert_raw(bytecode, name, namelen, i);
+		i += namelen;
+
+		char four_empty[] = { 0, 0, 0, 0 };
+		return mu_string_insert_raw(bytecode, four_empty, datanamelen-namelen, i);
+	}
+
+	// 3.49.6 Type-Declaration Instructions (Get)
+
+	muString muVGC_get_void_type(muString bytecode, uint32_m* void_type, uint32_m* global_id) {
+		size_m dec = muVGC_hop_to_decoration_section(bytecode);
+		size_m var = muVGC_hop_to_variable_section(bytecode);
+
+		for (size_m i = dec; i < var;) {
+			int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
+			int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+			if (instruction == 19 && step == 2) {
+				*void_type = muVGC_get_word(&bytecode.s[i+4]);
+				return bytecode;
+			}
+
+			i += step * 4;
+		}
+
+		char b[] = {
+			19, 0, 2, 0,
+			MUVGC_4_BYTE_LE(*global_id)
+		};
+		*void_type = *global_id;
+		*global_id += 1;
+		return mu_string_insert_raw(bytecode, b, sizeof(b), var);
+	}
+
+	muString muVGC_get_function_type(
+		muString bytecode, uint32_m* type, uint32_m* global_id,
+		uint32_m return_type, uint32_m* parameter_types, size_m parameter_len) {
+
+		size_m dec = muVGC_hop_to_decoration_section(bytecode);
+		size_m var = muVGC_hop_to_variable_section(bytecode);
+
+		for (size_m i = dec; i < var;) {
+			int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
+			int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+			if (instruction == 33 && step == 3 + parameter_len && muVGC_get_word(&bytecode.s[i+8]) == return_type) {
+				muBool good = MU_TRUE;
+				for (size_m j = 0; j < parameter_len; j++) {
+					// Is 12 correct here? @TODO Check later
+					if (muVGC_get_word(&bytecode.s[i+12+(j*4)]) != parameter_types[j]) {
+						good = MU_FALSE;
+						break;
+					}
+				}
+				if (good == MU_TRUE) {
+					*type = muVGC_get_word(&bytecode.s[i+4]);
+					return bytecode;
+				}
+			}
+
+			i += step * 4;
+		}
+
+		char* b = mu_malloc(12 + (parameter_len*4));
+
+		b[0] = 33; b[1] = 0; MUVGC_2_BYTE_LE_SET(b, 3+parameter_len, 2)
+		MUVGC_4_BYTE_LE_SET(b, *global_id, 4)
+		MUVGC_4_BYTE_LE_SET(b, return_type, 8)
+		for (size_m i = 0; i < parameter_len; i++) {
+			MUVGC_4_BYTE_LE_SET(b, parameter_types[i], 12+(i*4))
+		}
+
+		bytecode = mu_string_insert_raw(bytecode, b, 12 + (parameter_len*4), var);
+		mu_free(b);
+		*type = *global_id;
+		*global_id += 1;
+		return bytecode;
+	}
+
+	// 3.49.9 Function Instructions
+
+	muString muVGC_op_function(
+		muString bytecode, uint32_m return_type, uint32_m function_control, uint32_m function_type, uint32_m* global_id) {
+
+		char b[] = {
+			54, 0, 5, 0,
+			MUVGC_4_BYTE_LE(return_type),
+			MUVGC_4_BYTE_LE(*global_id),
+			MUVGC_4_BYTE_LE(function_control),
+			MUVGC_4_BYTE_LE(function_type)
+		};
+		bytecode = mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
+
+		*global_id += 1;
+		return bytecode;
+	}
+
+	muString muVGC_op_function_end(muString bytecode) {
+		char b[] = {
+			56, 0, 1, 0
+		};
+		return mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
+	}
+
+	// 3.49.17 Control-Flow Instructions
+
+	muString muVGC_op_label(muString bytecode, uint32_m result_id) {
+		// Thanks GCC (-Woverflow)
+		int n = 248;
+		char b[] = {
+			MUVGC_2_BYTE_LE(n), 2, 0,
+			MUVGC_4_BYTE_LE(result_id)
+		};
+		return mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
+	}
+
+	muString muVGC_op_return(muString bytecode) {
+		int n = 253;
+		char b[] = {
+			MUVGC_2_BYTE_LE(n), 1, 0
+		};
+		return mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
+	}
+
+	// Get type
+
+	muString muVGC_get_type(muString bytecode, muResult* result, char* type, size_m typelen, uint32_m* typen, uint32_m* global_id) {
+		switch (typelen) {
+			case 4: {
+				if (mu_strncmp(type, "void", 4) == 0) {
+					return muVGC_get_void_type(bytecode, typen, global_id);
+				}
+			} break;
+		}
+
+		*result = MU_FAILURE;
+		return bytecode;
+	}
+
 /* STATEMENT TYPE HANDLING */
 
 	// Statement types
@@ -2112,7 +2391,8 @@ extern "C" { // }
 	enum muVGCStatementType {
 		MUVGC_STATEMENT_UNKNOWN=0,
 		MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION=1,
-		MUVGC_STATEMENT_SCOPE_CLOSE=2
+		MUVGC_STATEMENT_SCOPE_OPEN=2,
+		MUVGC_STATEMENT_SCOPE_CLOSE=3
 
 		#define MUVGC_STATEMENT_FIRST MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION
 		#define MUVGC_STATEMENT_LAST  MUVGC_STATEMENT_SCOPE_CLOSE
@@ -2124,6 +2404,7 @@ extern "C" { // }
 		switch (type) {
 			default: mu_print("unknown"); break;
 			case MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION: mu_print("function implementation"); break;
+			case MUVGC_STATEMENT_SCOPE_OPEN: mu_print("scope open"); break;
 			case MUVGC_STATEMENT_SCOPE_CLOSE: mu_print("scope close"); break;
 		}
 	}
@@ -2220,6 +2501,14 @@ extern "C" { // }
 				return MU_FAILURE;
 			} break;
 
+			case MUVGC_STATEMENT_SCOPE_OPEN: {
+				if (tokens[0].type == MUVGC_TOKEN_OPEN_BRACE) {
+					*length = 1;
+					return MU_SUCCESS;
+				}
+				return MU_FAILURE;
+			} break;
+
 			case MUVGC_STATEMENT_SCOPE_CLOSE: {
 				if (tokens[0].type == MUVGC_TOKEN_CLOSE_BRACE) {
 					*length = 1;
@@ -2232,16 +2521,53 @@ extern "C" { // }
 
 	muString muVGC_execute_statement_type(
 		muResult* result, muVGCStatementType type, muVGCToken* tokens, 
-		size_m token_len, const char* code, const char* og, muString bytecode) {
+		size_m token_len, const char* code, const char* og, muString bytecode,
+		size_m* scope_count, uint32_m* global_id) {
+
+		muResult res = MU_SUCCESS;
 
 		switch (type) {
 			default: *result = MU_FAILURE; return bytecode; break;
 
 			case MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION: {
+				uint32_m return_type = 0;
+				bytecode = muVGC_get_type(bytecode, &res, muVGC_get_token_value(code, tokens[0]), tokens[0].length, &return_type, global_id);
+				if (res != MU_SUCCESS) {
+					muVGC_print_syntax_error(og, tokens[0].index);
+					mu_print("unrecognized type specified\n");
+					*result = MU_FAILURE;
+					return bytecode;
+				}
+
+				// @TODO Find a clean way (or way at all) to gather parameters
+				uint32_m function_type = 0;
+				bytecode = muVGC_get_function_type(bytecode, &function_type, global_id, return_type, MU_NULL_PTR, 0);
+				bytecode = muVGC_op_function(bytecode, return_type, 0, function_type, global_id);
+				bytecode = muVGC_op_name(bytecode, *global_id-1, muVGC_get_token_value(code, tokens[1]), tokens[1].length);
+				bytecode = muVGC_op_label(bytecode, *global_id);
+				*global_id += 1;
+				if (tokens[0].length == 4 && mu_strncmp(muVGC_get_token_value(code, tokens[0]), "void", 4) == 0) {
+					bytecode = muVGC_op_return(bytecode);
+				}
+				bytecode = muVGC_op_function_end(bytecode);
+
+				*scope_count += 1;
+				return bytecode;
+			} break;
+
+			case MUVGC_STATEMENT_SCOPE_OPEN: {
+				*scope_count += 1;
 				return bytecode;
 			} break;
 
 			case MUVGC_STATEMENT_SCOPE_CLOSE: {
+				if (scope_count == 0) {
+					muVGC_print_syntax_error(og, tokens[0].index);
+					mu_print("too many close braces\n");
+					*result = MU_FAILURE;
+					return bytecode;
+				}
+				*scope_count -= 1;
 				return bytecode;
 			} break;
 		}
@@ -2334,6 +2660,41 @@ extern "C" { // }
 
 	// Statement execution
 
+	muString muVGC_execute_function(
+		muResult* result, muString bytecode, muVGCStatement* statements, size_m statement_len,
+		muVGCToken* tokens, size_m token_len, const char* code, const char* og,
+		uint32_m* global_id) {
+
+		size_m scope_count = 0;
+		muResult res = MU_SUCCESS;
+		size_m i = 1;
+
+		bytecode = muVGC_execute_statement_type(&res, statements[0].type, tokens, token_len, code, og, bytecode, &scope_count, global_id);
+		if (res != MU_SUCCESS) {
+			*result = MU_FAILURE;
+			return bytecode;
+		}
+
+		while (scope_count > 0 && i < token_len && tokens[i].type != MUVGC_TOKEN_END_OF_FILE) {
+			bytecode = muVGC_execute_statement_type(&res, statements[i].type, &tokens[i], token_len-i, code, og, bytecode, &scope_count, global_id);
+			if (res != MU_SUCCESS) {
+				*result = MU_FAILURE;
+				return bytecode;
+			}
+
+			i++;
+		}
+
+		if (scope_count > 0 && (i >= token_len || tokens[i].type == MUVGC_TOKEN_END_OF_FILE)) {
+			muVGC_print_syntax_error(og, tokens[token_len-1].index);
+			mu_print("expected a close brace before end of file\n");
+			*result = MU_FAILURE;
+			return bytecode;
+		}
+
+		return bytecode;
+	}
+
 /* API-LEVEL FUNCS */
 
 	MUDEF muString mu_compile_vulkan_glsl(muResult* result, const char* code, muVGCShader shader) {
@@ -2401,9 +2762,22 @@ extern "C" { // }
 			return (muString){ 0 };
 		}
 
-		for (size_m i = 0; i < statement_len; i++) {
+		/*for (size_m i = 0; i < statement_len; i++) {
 			muVGC_print_statement_type(statements[i].type);
 			mu_print("\n");
+		}*/
+		uint32_m global_id = 2;
+		bytecode_str = muVGC_execute_function(&res, bytecode_str, statements, statement_len, tokens, token_len, code_str.s, code, &global_id);
+		if (res != MU_SUCCESS) {
+			if (result != MU_NULL_PTR) {
+				*result = MU_FAILURE;
+			}
+
+			mu_free(statements);
+			mu_free(tokens);
+			code_str = mu_string_destroy(code_str);
+			bytecode_str = mu_string_destroy(bytecode_str);
+			return (muString){ 0 };
 		}
 
 		// Deallocate and return
@@ -2411,6 +2785,8 @@ extern "C" { // }
 		mu_free(statements);
 		mu_free(tokens);
 		code_str = mu_string_destroy(code_str);
+		// (+ set max bound)
+		MUVGC_4_BYTE_LE_SET(bytecode_str.s, global_id, 12)
 		return bytecode_str;
 	}
 
