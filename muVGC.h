@@ -2585,7 +2585,7 @@ extern "C" { // }
 	typedef struct muVGCStatement muVGCStatement;
 
 	muVGCStatement muVGC_get_statement(
-		muResult* result, muVGCToken* tokens, size_m token_len, const char* code, const char* og) {
+		muResult* result, muVGCToken* tokens, size_m token_len, size_m total_token_len, const char* code, const char* og) {
 
 		muVGCStatement statement = { 0 };
 		statement.type = MUVGC_STATEMENT_UNKNOWN;
@@ -2599,7 +2599,7 @@ extern "C" { // }
 				}
 
 				statement.type = type;
-				statement.index = tokens[0].index;
+				statement.index = total_token_len-token_len;
 				return statement;
 			}
 			if (res != MU_SUCCESS) {
@@ -2624,7 +2624,7 @@ extern "C" { // }
 		size_m statement_len = 0;
 
 		for (size_m i = 0; i < token_len;) {
-			muVGCStatement statement = muVGC_get_statement(&res, &tokens[i], token_len-i, code, og);
+			muVGCStatement statement = muVGC_get_statement(&res, &tokens[i], token_len-i, token_len, code, og);
 
 			if (res != MU_SUCCESS) {
 				return MU_NULL_PTR;
@@ -2643,7 +2643,7 @@ extern "C" { // }
 
 		size_m index = 0;
 		for (size_m i = 0; i < token_len;) {
-			muVGCStatement statement = muVGC_get_statement(&res, &tokens[i], token_len-i, code, og);
+			muVGCStatement statement = muVGC_get_statement(&res, &tokens[i], token_len-i, token_len, code, og);
 
 			if (res != MU_SUCCESS) {
 				mu_free(statements);
@@ -2688,6 +2688,80 @@ extern "C" { // }
 		if (scope_count > 0 && (i >= token_len || tokens[i].type == MUVGC_TOKEN_END_OF_FILE)) {
 			muVGC_print_syntax_error(og, tokens[token_len-1].index);
 			mu_print("expected a close brace before end of file\n");
+			*result = MU_FAILURE;
+			return bytecode;
+		}
+
+		return bytecode;
+	}
+
+	muString muVGC_declare_main_function(
+		muResult* result, muString bytecode, muVGCStatement* statements, size_m statement_len,
+		muVGCToken* tokens, size_m token_len, const char* code, const char* og,
+		uint32_m* global_id) {
+
+		muBool found_main = MU_FALSE;
+		for (size_m i = 0; i < statement_len; i++) {
+			if (statements[i].type == MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION &&
+				tokens[statements[i].index+1].length == 4 &&
+				mu_strncmp(muVGC_get_token_value(code, tokens[statements[i].index+1]), "main", 4) == 0) {
+
+				if (found_main == MU_TRUE) {
+					muVGC_print_syntax_error(og, tokens[statements[i].index+1].index);
+					mu_print("multiple entry point 'main' functions declared\n");
+					*result = MU_FAILURE;
+					return bytecode;
+				}
+				found_main = MU_TRUE;
+
+				if ((tokens[statements[i].index].length != 4) ||
+					(mu_strncmp(muVGC_get_token_value(code, tokens[statements[i].index]), "void", 4) != 0)) {
+
+					muVGC_print_syntax_error(og, tokens[statements[i].index].index);
+					mu_print("entry point 'main' function declared as something else than void\n");
+					*result = MU_FAILURE;
+					return bytecode;
+				}
+
+				if ((tokens[statements[i].index+3].type != MUVGC_TOKEN_CLOSE_PARENTHESIS)) {
+					muVGC_print_syntax_error(og, tokens[statements[i].index+3].index);
+					mu_print("entry point 'main' function declared with parameters\n");
+					*result = MU_FAILURE;
+					return bytecode;
+				}
+
+				muResult res = MU_SUCCESS;
+				size_m scope_count = 0;
+				bytecode = muVGC_execute_statement_type(
+					&res, MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION,
+					&tokens[statements[i].index], token_len-statements[i].index,
+					code, og, bytecode, &scope_count, global_id
+				);
+				if (res != MU_SUCCESS) {
+					*result = MU_FAILURE;
+					return bytecode;
+				}
+			}
+		}
+
+		if (found_main == MU_FALSE) {
+			mu_print("[muVGC] Error while compiling; no entry point 'main' function found\n");
+			*result = MU_FAILURE;
+			return bytecode;
+		}
+
+		return bytecode;
+	}
+
+	muString muVGC_execute_statements(
+		muResult* result, muString bytecode, muVGCStatement* statements, size_m statement_len,
+		muVGCToken* tokens, size_m token_len, const char* code, const char* og,
+		uint32_m* global_id) {
+
+		muResult res = MU_SUCCESS;
+
+		bytecode = muVGC_declare_main_function(&res, bytecode, statements, statement_len, tokens, token_len, code, og, global_id);
+		if (res != MU_SUCCESS) {
 			*result = MU_FAILURE;
 			return bytecode;
 		}
@@ -2762,12 +2836,10 @@ extern "C" { // }
 			return (muString){ 0 };
 		}
 
-		/*for (size_m i = 0; i < statement_len; i++) {
-			muVGC_print_statement_type(statements[i].type);
-			mu_print("\n");
-		}*/
+		// Execute statements
+
 		uint32_m global_id = 2;
-		bytecode_str = muVGC_execute_function(&res, bytecode_str, statements, statement_len, tokens, token_len, code_str.s, code, &global_id);
+		bytecode_str = muVGC_execute_statements(&res, bytecode_str, statements, statement_len, tokens, token_len, code_str.s, code, &global_id);
 		if (res != MU_SUCCESS) {
 			if (result != MU_NULL_PTR) {
 				*result = MU_FAILURE;
