@@ -2226,163 +2226,501 @@ extern "C" { // }
 
 	// 3.49.2 Debug Instructions
 
-	muString muVGC_op_name(muString bytecode, uint32_m id_target, char* name, size_m namelen) {
-		size_m i = muVGC_hop_to_naming_section(bytecode);
+		muString muVGC_op_name(muString bytecode, uint32_m id_target, char* name, size_m namelen) {
+			size_m i = muVGC_hop_to_naming_section(bytecode);
 
-		size_m datanamelen = namelen;
-		if ((datanamelen % 4) == 0) {
-			datanamelen++;
+			size_m datanamelen = namelen;
+			if ((datanamelen % 4) == 0) {
+				datanamelen++;
+			}
+			while (((datanamelen) % 4) != 0) {
+				datanamelen++;
+			}
+			uint16_m fulllen = (datanamelen / 4) + 2;
+
+			char b[] = {
+				5, 0, MUVGC_2_BYTE_LE(fulllen),
+				MUVGC_4_BYTE_LE(id_target)
+			};
+			bytecode = mu_string_insert_raw(bytecode, b, sizeof(b), i);
+			i += sizeof(b);
+
+			bytecode = mu_string_insert_raw(bytecode, name, namelen, i);
+			i += namelen;
+
+			char four_empty[] = { 0, 0, 0, 0 };
+			return mu_string_insert_raw(bytecode, four_empty, datanamelen-namelen, i);
 		}
-		while (((datanamelen) % 4) != 0) {
-			datanamelen++;
-		}
-		uint16_m fulllen = (datanamelen / 4) + 2;
-
-		char b[] = {
-			5, 0, MUVGC_2_BYTE_LE(fulllen),
-			MUVGC_4_BYTE_LE(id_target)
-		};
-		bytecode = mu_string_insert_raw(bytecode, b, sizeof(b), i);
-		i += sizeof(b);
-
-		bytecode = mu_string_insert_raw(bytecode, name, namelen, i);
-		i += namelen;
-
-		char four_empty[] = { 0, 0, 0, 0 };
-		return mu_string_insert_raw(bytecode, four_empty, datanamelen-namelen, i);
-	}
 
 	// 3.49.6 Type-Declaration Instructions (Get)
 
-	muString muVGC_get_void_type(muString bytecode, uint32_m* void_type, uint32_m* global_id) {
-		size_m dec = muVGC_hop_to_decoration_section(bytecode);
-		size_m var = muVGC_hop_to_variable_section(bytecode);
+		muString muVGC_get_void_type(muString bytecode, uint32_m* void_type, uint32_m* global_id) {
+			size_m dec = muVGC_hop_to_decoration_section(bytecode);
+			size_m var = muVGC_hop_to_variable_section(bytecode);
 
-		for (size_m i = dec; i < var;) {
-			int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
-			int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
+			for (size_m i = dec; i < var;) {
+				int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
+				int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
 
-			if (instruction == 19 && step == 2) {
-				*void_type = muVGC_get_word(&bytecode.s[i+4]);
-				return bytecode;
-			}
-
-			i += step * 4;
-		}
-
-		char b[] = {
-			19, 0, 2, 0,
-			MUVGC_4_BYTE_LE(*global_id)
-		};
-		*void_type = *global_id;
-		*global_id += 1;
-		return mu_string_insert_raw(bytecode, b, sizeof(b), var);
-	}
-
-	muString muVGC_get_function_type(
-		muString bytecode, uint32_m* type, uint32_m* global_id,
-		uint32_m return_type, uint32_m* parameter_types, size_m parameter_len) {
-
-		size_m dec = muVGC_hop_to_decoration_section(bytecode);
-		size_m var = muVGC_hop_to_variable_section(bytecode);
-
-		for (size_m i = dec; i < var;) {
-			int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
-			int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
-
-			if (instruction == 33 && step == 3 + parameter_len && muVGC_get_word(&bytecode.s[i+8]) == return_type) {
-				muBool good = MU_TRUE;
-				for (size_m j = 0; j < parameter_len; j++) {
-					// Is 12 correct here? @TODO Check later
-					if (muVGC_get_word(&bytecode.s[i+12+(j*4)]) != parameter_types[j]) {
-						good = MU_FALSE;
-						break;
-					}
-				}
-				if (good == MU_TRUE) {
-					*type = muVGC_get_word(&bytecode.s[i+4]);
+				if (instruction == 19 && step == 2) {
+					*void_type = muVGC_get_word(&bytecode.s[i+4]);
 					return bytecode;
 				}
+
+				i += step * 4;
 			}
 
-			i += step * 4;
+			char b[] = {
+				19, 0, 2, 0,
+				MUVGC_4_BYTE_LE(*global_id)
+			};
+			*void_type = *global_id;
+			*global_id += 1;
+			return mu_string_insert_raw(bytecode, b, sizeof(b), var);
 		}
 
-		char* b = mu_malloc(12 + (parameter_len*4));
+		muString muVGC_get_bool_type(muString bytecode, uint32_m* bool_type, uint32_m* global_id) {
+			size_m dec = muVGC_hop_to_decoration_section(bytecode);
+			size_m var = muVGC_hop_to_variable_section(bytecode);
 
-		b[0] = 33; b[1] = 0; MUVGC_2_BYTE_LE_SET(b, 3+parameter_len, 2)
-		MUVGC_4_BYTE_LE_SET(b, *global_id, 4)
-		MUVGC_4_BYTE_LE_SET(b, return_type, 8)
-		for (size_m i = 0; i < parameter_len; i++) {
-			MUVGC_4_BYTE_LE_SET(b, parameter_types[i], 12+(i*4))
+			for (size_m i = dec; i < var;) {
+				int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
+				int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+				if (instruction == 20 && step == 2) {
+					*bool_type = muVGC_get_word(&bytecode.s[i+4]);
+					return bytecode;
+				}
+
+				i += step * 4;
+			}
+
+			char b[] = {
+				20, 0, 2, 0,
+				MUVGC_4_BYTE_LE(*global_id)
+			};
+			*bool_type = *global_id;
+			*global_id += 1;
+			return mu_string_insert_raw(bytecode, b, sizeof(b), var);
 		}
 
-		bytecode = mu_string_insert_raw(bytecode, b, 12 + (parameter_len*4), var);
-		mu_free(b);
-		*type = *global_id;
-		*global_id += 1;
-		return bytecode;
-	}
+		muString muVGC_get_int_type(muString bytecode, uint32_m* int_type, uint32_m* global_id, uint32_m width, uint32_m signedness) {
+			size_m dec = muVGC_hop_to_decoration_section(bytecode);
+			size_m var = muVGC_hop_to_variable_section(bytecode);
+
+			for (size_m i = dec; i < var;) {
+				int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
+				int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+				if (instruction == 21 && step == 4 && muVGC_get_word(&bytecode.s[i+8]) == width && muVGC_get_word(&bytecode.s[i+12]) == signedness) {
+					*int_type = muVGC_get_word(&bytecode.s[i+4]);
+					return bytecode;
+				}
+
+				i += step * 4;
+			}
+
+			char b[] = {
+				21, 0, 4, 0,
+				MUVGC_4_BYTE_LE(*global_id),
+				MUVGC_4_BYTE_LE(width),
+				MUVGC_4_BYTE_LE(signedness)
+			};
+			*int_type = *global_id;
+			*global_id += 1;
+			return mu_string_insert_raw(bytecode, b, sizeof(b), var);
+		}
+
+		muString muVGC_get_float_type(muString bytecode, uint32_m* float_type, uint32_m* global_id, uint32_m width) {
+			size_m dec = muVGC_hop_to_decoration_section(bytecode);
+			size_m var = muVGC_hop_to_variable_section(bytecode);
+
+			for (size_m i = dec; i < var;) {
+				int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
+				int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+				if (instruction == 22 && step == 3 && muVGC_get_word(&bytecode.s[i+8]) == width) {
+					*float_type = muVGC_get_word(&bytecode.s[i+4]);
+					return bytecode;
+				}
+
+				i += step * 4;
+			}
+
+			char b[] = {
+				22, 0, 3, 0,
+				MUVGC_4_BYTE_LE(*global_id),
+				MUVGC_4_BYTE_LE(width)
+			};
+			*float_type = *global_id;
+			*global_id += 1;
+			return mu_string_insert_raw(bytecode, b, sizeof(b), var);
+		}
+
+		muString muVGC_get_vector_type(muString bytecode, uint32_m* vec_type, uint32_m* global_id, uint32_m component_type, uint32_m component_count) {
+			size_m dec = muVGC_hop_to_decoration_section(bytecode);
+			size_m var = muVGC_hop_to_variable_section(bytecode);
+
+			for (size_m i = dec; i < var;) {
+				int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
+				int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+				if (instruction == 23 && step == 4 && muVGC_get_word(&bytecode.s[i+8]) == component_type && muVGC_get_word(&bytecode.s[i+12]) == component_count) {
+					*vec_type = muVGC_get_word(&bytecode.s[i+4]);
+					return bytecode;
+				}
+
+				i += step * 4;
+			}
+
+			char b[] = {
+				23, 0, 4, 0,
+				MUVGC_4_BYTE_LE(*global_id),
+				MUVGC_4_BYTE_LE(component_type),
+				MUVGC_4_BYTE_LE(component_count)
+			};
+			*vec_type = *global_id;
+			*global_id += 1;
+			return mu_string_insert_raw(bytecode, b, sizeof(b), var);
+		}
+
+		muString muVGC_get_matrix_type(muString bytecode, uint32_m* mat_type, uint32_m* global_id, uint32_m column_type, uint32_m column_count) {
+			size_m dec = muVGC_hop_to_decoration_section(bytecode);
+			size_m var = muVGC_hop_to_variable_section(bytecode);
+
+			for (size_m i = dec; i < var;) {
+				int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
+				int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+				if (instruction == 24 && step == 4 && muVGC_get_word(&bytecode.s[i+8]) == column_type && muVGC_get_word(&bytecode.s[i+12]) == column_count) {
+					*mat_type = muVGC_get_word(&bytecode.s[i+4]);
+					return bytecode;
+				}
+
+				i += step * 4;
+			}
+
+			char b[] = {
+				24, 0, 4, 0,
+				MUVGC_4_BYTE_LE(*global_id),
+				MUVGC_4_BYTE_LE(column_type),
+				MUVGC_4_BYTE_LE(column_count)
+			};
+			*mat_type = *global_id;
+			*global_id += 1;
+			return mu_string_insert_raw(bytecode, b, sizeof(b), var);
+		}
+
+		muString muVGC_get_function_type(
+			muString bytecode, uint32_m* type, uint32_m* global_id,
+			uint32_m return_type, uint32_m* parameter_types, size_m parameter_len) {
+
+			size_m dec = muVGC_hop_to_decoration_section(bytecode);
+			size_m var = muVGC_hop_to_variable_section(bytecode);
+
+			for (size_m i = dec; i < var;) {
+				int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
+				int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+				if (instruction == 33 && step == 3 + parameter_len && muVGC_get_word(&bytecode.s[i+8]) == return_type) {
+					muBool good = MU_TRUE;
+					for (size_m j = 0; j < parameter_len; j++) {
+						// Is 12 correct here? @TODO Check later
+						if (muVGC_get_word(&bytecode.s[i+12+(j*4)]) != parameter_types[j]) {
+							good = MU_FALSE;
+							break;
+						}
+					}
+					if (good == MU_TRUE) {
+						*type = muVGC_get_word(&bytecode.s[i+4]);
+						return bytecode;
+					}
+				}
+
+				i += step * 4;
+			}
+
+			char* b = mu_malloc(12 + (parameter_len*4));
+
+			b[0] = 33; b[1] = 0; MUVGC_2_BYTE_LE_SET(b, 3+parameter_len, 2)
+			MUVGC_4_BYTE_LE_SET(b, *global_id, 4)
+			MUVGC_4_BYTE_LE_SET(b, return_type, 8)
+			for (size_m i = 0; i < parameter_len; i++) {
+				MUVGC_4_BYTE_LE_SET(b, parameter_types[i], 12+(i*4))
+			}
+
+			bytecode = mu_string_insert_raw(bytecode, b, 12 + (parameter_len*4), var);
+			mu_free(b);
+			*type = *global_id;
+			*global_id += 1;
+			return bytecode;
+		}
 
 	// 3.49.9 Function Instructions
 
-	muString muVGC_op_function(
-		muString bytecode, uint32_m return_type, uint32_m function_control, uint32_m function_type, uint32_m* global_id) {
+		muString muVGC_op_function(
+			muString bytecode, uint32_m return_type, uint32_m function_control, uint32_m function_type, uint32_m* global_id) {
 
-		char b[] = {
-			54, 0, 5, 0,
-			MUVGC_4_BYTE_LE(return_type),
-			MUVGC_4_BYTE_LE(*global_id),
-			MUVGC_4_BYTE_LE(function_control),
-			MUVGC_4_BYTE_LE(function_type)
-		};
-		bytecode = mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
+			char b[] = {
+				54, 0, 5, 0,
+				MUVGC_4_BYTE_LE(return_type),
+				MUVGC_4_BYTE_LE(*global_id),
+				MUVGC_4_BYTE_LE(function_control),
+				MUVGC_4_BYTE_LE(function_type)
+			};
+			bytecode = mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
 
-		*global_id += 1;
-		return bytecode;
-	}
+			*global_id += 1;
+			return bytecode;
+		}
 
-	muString muVGC_op_function_end(muString bytecode) {
-		char b[] = {
-			56, 0, 1, 0
-		};
-		return mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
-	}
+		muString muVGC_op_function_end(muString bytecode) {
+			char b[] = {
+				56, 0, 1, 0
+			};
+			return mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
+		}
 
 	// 3.49.17 Control-Flow Instructions
 
-	muString muVGC_op_label(muString bytecode, uint32_m result_id) {
-		// Thanks GCC (-Woverflow)
-		int n = 248;
-		char b[] = {
-			MUVGC_2_BYTE_LE(n), 2, 0,
-			MUVGC_4_BYTE_LE(result_id)
-		};
-		return mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
-	}
+		muString muVGC_op_label(muString bytecode, uint32_m result_id) {
+			// Thanks GCC (-Woverflow)
+			int n = 248;
+			char b[] = {
+				MUVGC_2_BYTE_LE(n), 2, 0,
+				MUVGC_4_BYTE_LE(result_id)
+			};
+			return mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
+		}
 
-	muString muVGC_op_return(muString bytecode) {
-		int n = 253;
-		char b[] = {
-			MUVGC_2_BYTE_LE(n), 1, 0
-		};
-		return mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
-	}
+		muString muVGC_op_return(muString bytecode) {
+			int n = 253;
+			char b[] = {
+				MUVGC_2_BYTE_LE(n), 1, 0
+			};
+			return mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
+		}
 
 	// Get type
 
-	muString muVGC_get_type(muString bytecode, muResult* result, char* type, size_m typelen, uint32_m* typen, uint32_m* global_id) {
-		switch (typelen) {
-			case 4: {
-				if (mu_strncmp(type, "void", 4) == 0) {
-					return muVGC_get_void_type(bytecode, typen, global_id);
-				}
-			} break;
-		}
+		muString muVGC_get_type(muString bytecode, muResult* result, char* type, size_m typelen, uint32_m* typen, uint32_m* global_id) {
+			switch (typelen) {
+				case 3: {
+					if (mu_strncmp(type, "int", 3) == 0) {
+						return muVGC_get_int_type(bytecode, typen, global_id, 32, 1);
+					}
+				} break;
 
-		*result = MU_FAILURE;
-		return bytecode;
-	}
+				case 4: {
+					if (mu_strncmp(type, "void", 4) == 0) {
+						return muVGC_get_void_type(bytecode, typen, global_id);
+					} else if (mu_strncmp(type, "bool", 4) == 0) {
+						return muVGC_get_bool_type(bytecode, typen, global_id);
+					} else if (mu_strncmp(type, "uint", 4) == 0) {
+						return muVGC_get_int_type(bytecode, typen, global_id, 32, 0);
+					} else if (mu_strncmp(type, "vec2", 4) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 2);
+					} else if (mu_strncmp(type, "vec3", 4) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 3);
+					} else if (mu_strncmp(type, "vec4", 4) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 4);
+					} else if (mu_strncmp(type, "mat2", 4) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
+					} else if (mu_strncmp(type, "mat3", 4) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
+					} else if (mu_strncmp(type, "mat4", 4) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					}
+				} break;
+
+				case 5: {
+					if (mu_strncmp(type, "float", 5) == 0) {
+						return muVGC_get_float_type(bytecode, typen, global_id, 32);
+					} else if (mu_strncmp(type, "dvec2", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 2);
+					} else if (mu_strncmp(type, "dvec3", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 3);
+					} else if (mu_strncmp(type, "dvec4", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 4);
+					} else if (mu_strncmp(type, "bvec2", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_bool_type(bytecode, &cmp, global_id);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 2);
+					} else if (mu_strncmp(type, "bvec3", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_bool_type(bytecode, &cmp, global_id);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 3);
+					} else if (mu_strncmp(type, "bvec4", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_bool_type(bytecode, &cmp, global_id);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 4);
+					} else if (mu_strncmp(type, "ivec2", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 1);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 2);
+					} else if (mu_strncmp(type, "ivec3", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 1);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 3);
+					} else if (mu_strncmp(type, "ivec4", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 1);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 4);
+					} else if (mu_strncmp(type, "uvec2", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 0);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 2);
+					} else if (mu_strncmp(type, "uvec3", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 0);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 3);
+					} else if (mu_strncmp(type, "uvec4", 5) == 0) {
+						uint32_m cmp = 0;
+						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 0);
+						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 4);
+					} else if (mu_strncmp(type, "dmat2", 5) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
+					} else if (mu_strncmp(type, "dmat3", 5) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
+					} else if (mu_strncmp(type, "dmat4", 5) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					}
+				} break;
+
+				case 6: {
+					if (mu_strncmp(type, "double", 6) == 0) {
+						return muVGC_get_float_type(bytecode, typen, global_id, 64);
+					} else if (mu_strncmp(type, "mat2x2", 6) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
+					} else if (mu_strncmp(type, "mat2x3", 6) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
+					} else if (mu_strncmp(type, "mat2x4", 6) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
+					} else if (mu_strncmp(type, "mat3x2", 6) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
+					} else if (mu_strncmp(type, "mat3x3", 6) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
+					} else if (mu_strncmp(type, "mat3x4", 6) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
+					} else if (mu_strncmp(type, "mat4x2", 6) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					} else if (mu_strncmp(type, "mat4x3", 6) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					} else if (mu_strncmp(type, "mat4x4", 6) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					}
+				} break;
+
+				case 7: {
+					if (mu_strncmp(type, "dmat2x2", 7) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
+					} else if (mu_strncmp(type, "dmat2x3", 7) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
+					} else if (mu_strncmp(type, "dmat2x4", 7) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
+					} else if (mu_strncmp(type, "dmat3x2", 7) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
+					} else if (mu_strncmp(type, "dmat3x3", 7) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
+					} else if (mu_strncmp(type, "dmat3x4", 7) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
+					} else if (mu_strncmp(type, "dmat4x2", 7) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					} else if (mu_strncmp(type, "dmat4x3", 7) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					} else if (mu_strncmp(type, "dmat4x4", 7) == 0) {
+						uint32_m cmp = 0, cmp2 = 0;
+						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					}
+				} break;
+			}
+
+			*result = MU_FAILURE;
+			return bytecode;
+		}
 
 /* STATEMENT TYPE HANDLING */
 
@@ -2714,14 +3052,14 @@ extern "C" { // }
 				}
 				found_main = MU_TRUE;
 
-				if ((tokens[statements[i].index].length != 4) ||
+				/*if ((tokens[statements[i].index].length != 4) ||
 					(mu_strncmp(muVGC_get_token_value(code, tokens[statements[i].index]), "void", 4) != 0)) {
 
 					muVGC_print_syntax_error(og, tokens[statements[i].index].index);
 					mu_print("entry point 'main' function declared as something else than void\n");
 					*result = MU_FAILURE;
 					return bytecode;
-				}
+				}*/
 
 				if ((tokens[statements[i].index+3].type != MUVGC_TOKEN_CLOSE_PARENTHESIS)) {
 					muVGC_print_syntax_error(og, tokens[statements[i].index+3].index);
