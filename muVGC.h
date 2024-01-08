@@ -2411,6 +2411,65 @@ extern "C" { // }
 			return mu_string_insert_raw(bytecode, b, sizeof(b), var);
 		}
 
+		muString muVGC_get_image_type(muString bytecode, uint32_m* img_type, uint32_m* global_id, 
+			uint32_m sampled_type, uint32_m dim, uint32_m depth, uint32_m arrayed, uint32_m ms, 
+			uint32_m sampled, uint32_m image_format, uint32_m access_qualifier, muBool apply_access_qualifier) {
+
+			size_m dec = muVGC_hop_to_decoration_section(bytecode);
+			size_m var = muVGC_hop_to_variable_section(bytecode);
+
+			for (size_m i = dec; i < var;) {
+				int16_m instruction = muVGC_get_halfword(&bytecode.s[i]);
+				int16_m step = muVGC_get_halfword(&bytecode.s[i+2]);
+
+				if (apply_access_qualifier) {
+					if (
+						instruction == 25 && step == 10 && 
+						muVGC_get_word(&bytecode.s[i+8]) == sampled_type && muVGC_get_word(&bytecode.s[i+12]) == dim &&
+						muVGC_get_word(&bytecode.s[i+16]) == depth && muVGC_get_word(&bytecode.s[i+20]) == arrayed &&
+						muVGC_get_word(&bytecode.s[i+24]) == ms && muVGC_get_word(&bytecode.s[i+28]) == sampled &&
+						muVGC_get_word(&bytecode.s[i+32]) == image_format && muVGC_get_word(&bytecode.s[i+36]) == access_qualifier) {
+
+						*img_type = muVGC_get_word(&bytecode.s[i+4]);
+						return bytecode;
+					}
+				} else {
+					if (
+						instruction == 25 && step == 9 && 
+						muVGC_get_word(&bytecode.s[i+8]) == sampled_type && muVGC_get_word(&bytecode.s[i+12]) == dim &&
+						muVGC_get_word(&bytecode.s[i+16]) == depth && muVGC_get_word(&bytecode.s[i+20]) == arrayed &&
+						muVGC_get_word(&bytecode.s[i+24]) == ms && muVGC_get_word(&bytecode.s[i+28]) == sampled &&
+						muVGC_get_word(&bytecode.s[i+32]) == image_format) {
+
+						*img_type = muVGC_get_word(&bytecode.s[i+4]);
+						return bytecode;
+					}
+				}
+
+				i += step * 4;
+			}
+
+			char b[] = {
+				25, 0, 10, 0,
+				MUVGC_4_BYTE_LE(*global_id),
+				MUVGC_4_BYTE_LE(sampled_type),
+				MUVGC_4_BYTE_LE(dim),
+				MUVGC_4_BYTE_LE(depth),
+				MUVGC_4_BYTE_LE(arrayed),
+				MUVGC_4_BYTE_LE(ms),
+				MUVGC_4_BYTE_LE(sampled),
+				MUVGC_4_BYTE_LE(image_format),
+				MUVGC_4_BYTE_LE(access_qualifier)
+			};
+			*img_type = *global_id;
+			*global_id += 1;
+			if (apply_access_qualifier != MU_TRUE) {
+				b[2] = 9;
+				return mu_string_insert_raw(bytecode, b, sizeof(b)-4, var);
+			}
+			return mu_string_insert_raw(bytecode, b, sizeof(b), var);
+		}
+
 		muString muVGC_get_function_type(
 			muString bytecode, uint32_m* type, uint32_m* global_id,
 			uint32_m return_type, uint32_m* parameter_types, size_m parameter_len) {
@@ -2501,225 +2560,777 @@ extern "C" { // }
 			return mu_string_insert_raw(bytecode, b, sizeof(b), muVGC_hop_to_function_section(bytecode));
 		}
 
-	// Get type
+	// Get stuff
 
-		muString muVGC_get_type(muString bytecode, muResult* result, char* type, size_m typelen, uint32_m* typen, uint32_m* global_id) {
-			switch (typelen) {
+		uint32_m muVGC_get_format(char* format, size_m formatlen) {
+			switch (formatlen) {
+				default: break;
+
+				case 2: {
+					if (mu_strncmp(format, "r8", 2) == 0) {
+						return 15;
+					}
+				} break;
+
 				case 3: {
-					if (mu_strncmp(type, "int", 3) == 0) {
-						return muVGC_get_int_type(bytecode, typen, global_id, 32, 1);
+					if (mu_strncmp(format, "rg8", 3) == 0) {
+						return 13;
+					} else if (mu_strncmp(format, "r16", 3) == 0) {
+						return 14;
+					} else if (mu_strncmp(format, "r8i", 3) == 0) {
+						return 29;
 					}
 				} break;
 
 				case 4: {
-					if (mu_strncmp(type, "void", 4) == 0) {
-						return muVGC_get_void_type(bytecode, typen, global_id);
-					} else if (mu_strncmp(type, "bool", 4) == 0) {
-						return muVGC_get_bool_type(bytecode, typen, global_id);
-					} else if (mu_strncmp(type, "uint", 4) == 0) {
-						return muVGC_get_int_type(bytecode, typen, global_id, 32, 0);
-					} else if (mu_strncmp(type, "vec2", 4) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 2);
-					} else if (mu_strncmp(type, "vec3", 4) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 3);
-					} else if (mu_strncmp(type, "vec4", 4) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 4);
-					} else if (mu_strncmp(type, "mat2", 4) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
-					} else if (mu_strncmp(type, "mat3", 4) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
-					} else if (mu_strncmp(type, "mat4", 4) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					if (mu_strncmp(format, "r32f", 4) == 0) {
+						return 3;
+					} else if (mu_strncmp(format, "r16f", 4) == 0) {
+						return 9;
+					} else if (mu_strncmp(format, "rg16", 4) == 0) {
+						return 12;
+					} else if (mu_strncmp(format, "rg8i", 4) == 0) {
+						return 27;
+					} else if (mu_strncmp(format, "r32i", 4) == 0) {
+						return 24;
+					} else if (mu_strncmp(format, "r16i", 4) == 0) {
+						return 28;
+					} else if (mu_strncmp(format, "r8ui", 4) == 0) {
+						return 39;
 					}
 				} break;
 
 				case 5: {
-					if (mu_strncmp(type, "float", 5) == 0) {
-						return muVGC_get_float_type(bytecode, typen, global_id, 32);
-					} else if (mu_strncmp(type, "dvec2", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 2);
-					} else if (mu_strncmp(type, "dvec3", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 3);
-					} else if (mu_strncmp(type, "dvec4", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 4);
-					} else if (mu_strncmp(type, "bvec2", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_bool_type(bytecode, &cmp, global_id);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 2);
-					} else if (mu_strncmp(type, "bvec3", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_bool_type(bytecode, &cmp, global_id);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 3);
-					} else if (mu_strncmp(type, "bvec4", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_bool_type(bytecode, &cmp, global_id);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 4);
-					} else if (mu_strncmp(type, "ivec2", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 1);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 2);
-					} else if (mu_strncmp(type, "ivec3", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 1);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 3);
-					} else if (mu_strncmp(type, "ivec4", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 1);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 4);
-					} else if (mu_strncmp(type, "uvec2", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 0);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 2);
-					} else if (mu_strncmp(type, "uvec3", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 0);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 3);
-					} else if (mu_strncmp(type, "uvec4", 5) == 0) {
-						uint32_m cmp = 0;
-						bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 0);
-						return muVGC_get_vector_type(bytecode, typen, global_id, cmp, 4);
-					} else if (mu_strncmp(type, "dmat2", 5) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
-					} else if (mu_strncmp(type, "dmat3", 5) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
-					} else if (mu_strncmp(type, "dmat4", 5) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					if (mu_strncmp(format, "rg32f", 5) == 0) {
+						return 6;
+					} else if (mu_strncmp(format, "rg16f", 5) == 0) {
+						return 7;
+					} else if (mu_strncmp(format, "rgba8", 5) == 0) {
+						return 4;
+					} else if (mu_strncmp(format, "rg32i", 5) == 0) {
+						return 25;
+					} else if (mu_strncmp(format, "rg16i", 5) == 0) {
+						return 26;
+					} else if (mu_strncmp(format, "rg8ui", 5) == 0) {
+						return 37;
+					} else if (mu_strncmp(format, "r32ui", 5) == 0) {
+						return 33;
+					} else if (mu_strncmp(format, "r16ui", 5) == 0) {
+						return 38;
 					}
 				} break;
 
 				case 6: {
-					if (mu_strncmp(type, "double", 6) == 0) {
-						return muVGC_get_float_type(bytecode, typen, global_id, 64);
-					} else if (mu_strncmp(type, "mat2x2", 6) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
-					} else if (mu_strncmp(type, "mat2x3", 6) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
-					} else if (mu_strncmp(type, "mat2x4", 6) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
-					} else if (mu_strncmp(type, "mat3x2", 6) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
-					} else if (mu_strncmp(type, "mat3x3", 6) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
-					} else if (mu_strncmp(type, "mat3x4", 6) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
-					} else if (mu_strncmp(type, "mat4x2", 6) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
-					} else if (mu_strncmp(type, "mat4x3", 6) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
-					} else if (mu_strncmp(type, "mat4x4", 6) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					if (mu_strncmp(format, "rgba16", 6) == 0) {
+						return 10;
+					} else if (mu_strncmp(format, "rgba8i", 6) == 0) {
+						return 23;
+					} else if (mu_strncmp(format, "rg32ui", 6) == 0) {
+						return 35;
+					} else if (mu_strncmp(format, "rg16ui", 6) == 0) {
+						return 36;
 					}
 				} break;
 
 				case 7: {
-					if (mu_strncmp(type, "dmat2x2", 7) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
-					} else if (mu_strncmp(type, "dmat2x3", 7) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
-					} else if (mu_strncmp(type, "dmat2x4", 7) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 2);
-					} else if (mu_strncmp(type, "dmat3x2", 7) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
-					} else if (mu_strncmp(type, "dmat3x3", 7) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
-					} else if (mu_strncmp(type, "dmat3x4", 7) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 3);
-					} else if (mu_strncmp(type, "dmat4x2", 7) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
-					} else if (mu_strncmp(type, "dmat4x3", 7) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
-					} else if (mu_strncmp(type, "dmat4x4", 7) == 0) {
-						uint32_m cmp = 0, cmp2 = 0;
-						bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
-						bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
-						return muVGC_get_matrix_type(bytecode, typen, global_id, cmp2, 4);
+					if (mu_strncmp(format, "rgba32f", 7) == 0) {
+						return 1;
+					} else if (mu_strncmp(format, "rgba16f", 7) == 0) {
+						return 2;
+					} else if (mu_strncmp(format, "rgba32i", 7) == 0) {
+						return 21;
+					} else if (mu_strncmp(format, "rgba16i", 7) == 0) {
+						return 22;
+					} else if (mu_strncmp(format, "rgba8ui", 7) == 0) {
+						return 32;
+					}
+				} break;
+
+				case 8: {
+					if (mu_strncmp(format, "rgb10_a2", 8) == 0) {
+						return 11;
+					} else if (mu_strncmp(format, "r8_snorm", 8) == 0) {
+						return 20;
+					} else if (mu_strncmp(format, "rgba32ui", 8) == 0) {
+						return 30;
+					} else if (mu_strncmp(format, "rgba16ui", 8) == 0) {
+						return 31;
+					}
+				} break;
+
+				case 9: {
+					if (mu_strncmp(format, "rg8_snorm", 9) == 0) {
+						return 18;
+					} else if (mu_strncmp(format, "r16_snorm", 9) == 0) {
+						return 19;
+					}
+				} break;
+
+				case 10: {
+					if (mu_strncmp(format, "rg16_snorm", 10) == 0) {
+						return 17;
+					} else if (mu_strncmp(format, "rgb10_a2ui", 10) == 0) {
+						return 34;
+					}
+				} break;
+
+				case 11: {
+					if (mu_strncmp(format, "rgba8_snorm", 11) == 0) {
+						return 5;
+					}
+				} break;
+
+				case 12: {
+					if (mu_strncmp(format, "rgba16_snorm", 12) == 0) {
+						return 16;
+					}
+				} break;
+
+				case 14: {
+					if (mu_strncmp(format, "r11f_g11f_b10f", 14) == 0) {
+						return 8;
 					}
 				} break;
 			}
 
-			*result = MU_FAILURE;
-			return bytecode;
+			return 0;
+		}
+
+/* VARIABLE HANDLING */
+
+	// Enums
+
+		enum muVGCBasicType {
+			#define MUVGC_BASIC_TYPE_FIRST MUVGC_TYPE_VOID
+			// Transparent types
+			#define MUVGC_TRANSPARENT_TYPE_FIRST MUVGC_TYPE_VOID
+			MUVGC_TYPE_VOID,
+			MUVGC_TYPE_BOOL,
+			MUVGC_TYPE_INT,
+			MUVGC_TYPE_UINT,
+			MUVGC_TYPE_FLOAT,
+			MUVGC_TYPE_DOUBLE,
+			MUVGC_TYPE_VEC2,
+			MUVGC_TYPE_VEC3,
+			MUVGC_TYPE_VEC4,
+			MUVGC_TYPE_DVEC2,
+			MUVGC_TYPE_DVEC3,
+			MUVGC_TYPE_DVEC4,
+			MUVGC_TYPE_BVEC2,
+			MUVGC_TYPE_BVEC3,
+			MUVGC_TYPE_BVEC4,
+			MUVGC_TYPE_IVEC2,
+			MUVGC_TYPE_IVEC3,
+			MUVGC_TYPE_IVEC4,
+			MUVGC_TYPE_UVEC2,
+			MUVGC_TYPE_UVEC3,
+			MUVGC_TYPE_UVEC4,
+			MUVGC_TYPE_MAT2,
+			MUVGC_TYPE_MAT3,
+			MUVGC_TYPE_MAT4,
+			MUVGC_TYPE_MAT2X2,
+			MUVGC_TYPE_MAT2X3,
+			MUVGC_TYPE_MAT2X4,
+			MUVGC_TYPE_MAT3X2,
+			MUVGC_TYPE_MAT3X3,
+			MUVGC_TYPE_MAT3X4,
+			MUVGC_TYPE_MAT4X2,
+			MUVGC_TYPE_MAT4X3,
+			MUVGC_TYPE_MAT4X4,
+			MUVGC_TYPE_DMAT2,
+			MUVGC_TYPE_DMAT3,
+			MUVGC_TYPE_DMAT4,
+			MUVGC_TYPE_DMAT2X2,
+			MUVGC_TYPE_DMAT2X3,
+			MUVGC_TYPE_DMAT2X4,
+			MUVGC_TYPE_DMAT3X2,
+			MUVGC_TYPE_DMAT3X3,
+			MUVGC_TYPE_DMAT3X4,
+			MUVGC_TYPE_DMAT4X2,
+			MUVGC_TYPE_DMAT4X3,
+			MUVGC_TYPE_DMAT4X4,
+			#define MUVGC_TRANSPARENT_TYPE_LAST MUVGC_TYPE_DMAT4X4
+			// Floating-Point Opaque Types
+			#define MUVGC_FLOATING_POINT_OPAQUE_TYPE_FIRST MUVGC_TYPE_SAMPLER1D
+			MUVGC_TYPE_SAMPLER1D,
+			MUVGC_TYPE_IMAGE1D,
+			MUVGC_TYPE_SAMPLER2D,
+			MUVGC_TYPE_IMAGE2D,
+			MUVGC_TYPE_SAMPLER3D,
+			MUVGC_TYPE_IMAGE3D,
+			MUVGC_TYPE_SAMPLERCUBE,
+			MUVGC_TYPE_IMAGECUBE,
+			MUVGC_TYPE_SAMPLER2DRECT,
+			MUVGC_TYPE_IMAGE2DRECT,
+			MUVGC_TYPE_SAMPLER1DARRAY,
+			MUVGC_TYPE_IMAGE1DARRAY,
+			MUVGC_TYPE_SAMPLER2DARRAY,
+			MUVGC_TYPE_IMAGE2DARRAY,
+			MUVGC_TYPE_SAMPLERBUFFER,
+			MUVGC_TYPE_IMAGEBUFFER,
+			MUVGC_TYPE_SAMPLER2DMS,
+			MUVGC_TYPE_IMAGE2DMS,
+			MUVGC_TYPE_SAMPLER2DMSARRAY,
+			MUVGC_TYPE_IMAGE2DMSARRAY,
+			MUVGC_TYPE_SAMPLERCUBEARRAY,
+			MUVGC_TYPE_IMAGECUBEARRAY,
+			MUVGC_TYPE_SAMPLER1DSHADOW,
+			MUVGC_TYPE_SAMPLER2DSHADOW,
+			MUVGC_TYPE_SAMPLER2DRECTSHADOW,
+			MUVGC_TYPE_SAMPLER1DARRAYSHADOW,
+			MUVGC_TYPE_SAMPLER2DARRAYSHADOW,
+			MUVGC_TYPE_SAMPLERCUBESHADOW,
+			MUVGC_TYPE_SAMPLERCUBEARRAYSHADOW,
+			#define MUVGC_FLOATING_POINT_OPAQUE_TYPE_LAST MUVGC_TYPE_SAMPLERCUBEARRAYSHADOW
+			// Signed Integer Opaque Types
+			#define MUVGC_SIGNED_INTEGER_OPAQUE_TYPE_FIRST MUVGC_TYPE_ISAMPLER1D
+			MUVGC_TYPE_ISAMPLER1D,
+			MUVGC_TYPE_IIMAGE1D,
+			MUVGC_TYPE_ISAMPLER2D,
+			MUVGC_TYPE_IIMAGE2D,
+			MUVGC_TYPE_ISAMPLER3D,
+			MUVGC_TYPE_IIMAGE3D,
+			MUVGC_TYPE_ISAMPLERCUBE,
+			MUVGC_TYPE_IIMAGECUBE,
+			MUVGC_TYPE_ISAMPLER2DRECT,
+			MUVGC_TYPE_IIMAGE2DRECT,
+			MUVGC_TYPE_ISAMPLER1DARRAY,
+			MUVGC_TYPE_IIMAGE1DARRAY,
+			MUVGC_TYPE_ISAMPLER2DARRAY,
+			MUVGC_TYPE_IIMAGE2DARRAY,
+			MUVGC_TYPE_ISAMPLERBUFFER,
+			MUVGC_TYPE_IIMAGEBUFFER,
+			MUVGC_TYPE_ISAMPLER2DMS,
+			MUVGC_TYPE_IIMAGE2DMS,
+			MUVGC_TYPE_ISAMPLER2DMSARRAY,
+			MUVGC_TYPE_IIMAGE2DMSARRAY,
+			MUVGC_TYPE_ISAMPLERCUBEARRAY,
+			MUVGC_TYPE_IIMAGECUBEARRAY,
+			#define MUVGC_SIGNED_INTEGER_OPAQUE_TYPE_LAST MUVGC_TYPE_IIMAGECUBEARRAY
+			// Unsigned Integer Opaque Types
+			#define MUVGC_UNSIGNED_INTEGER_OPAQUE_TYPE_FIRST MUVGC_TYPE_USAMPLER1D
+			MUVGC_TYPE_USAMPLER1D,
+			MUVGC_TYPE_UIMAGE1D,
+			MUVGC_TYPE_USAMPLER2D,
+			MUVGC_TYPE_UIMAGE2D,
+			MUVGC_TYPE_USAMPLER3D,
+			MUVGC_TYPE_UIMAGE3D,
+			MUVGC_TYPE_USAMPLERCUBE,
+			MUVGC_TYPE_UIMAGECUBE,
+			MUVGC_TYPE_USAMPLER2DRECT,
+			MUVGC_TYPE_UIMAGE2DRECT,
+			MUVGC_TYPE_USAMPLER1DARRAY,
+			MUVGC_TYPE_UIMAGE1DARRAY,
+			MUVGC_TYPE_USAMPLER2DARRAY,
+			MUVGC_TYPE_UIMAGE2DARRAY,
+			MUVGC_TYPE_USAMPLERBUFFER,
+			MUVGC_TYPE_UIMAGEBUFFER,
+			MUVGC_TYPE_USAMPLER2DMS,
+			MUVGC_TYPE_UIMAGE2DMS,
+			MUVGC_TYPE_USAMPLER2DMSARRAY,
+			MUVGC_TYPE_UIMAGE2DMSARRAY,
+			MUVGC_TYPE_USAMPLERCUBEARRAY,
+			MUVGC_TYPE_UIMAGECUBEARRAY
+			#define MUVGC_UNSIGNED_INTEGER_OPAQUE_TYPE_LAST MUVGC_TYPE_UIMAGECUBEARRAY
+			#define MUVGC_BASIC_TYPE_LAST MUVGC_TYPE_UIMAGECUBEARRAY
+			#define MUVGC_TYPE_UNKNOWN 2345
+		};
+		typedef enum muVGCBasicType muVGCBasicType;
+
+		const char* muVGC_global_basic_type_names[] = {
+			"void",
+			"bool",
+			"int",
+			"uint",
+			"float",
+			"double",
+			"vec2",
+			"vec3",
+			"vec4",
+			"dvec2",
+			"dvec3",
+			"dvec4",
+			"bvec2",
+			"bvec3",
+			"bvec4",
+			"ivec2",
+			"ivec3",
+			"ivec4",
+			"uvec2",
+			"uvec3",
+			"uvec4",
+			"mat2",
+			"mat3",
+			"mat4",
+			"mat2x2",
+			"mat2x3",
+			"mat2x4",
+			"mat3x2",
+			"mat3x3",
+			"mat3x4",
+			"mat4x2",
+			"mat4x3",
+			"mat4x4",
+			"dmat2",
+			"dmat3",
+			"dmat4",
+			"dmat2x2",
+			"dmat2x3",
+			"dmat2x4",
+			"dmat3x2",
+			"dmat3x3",
+			"dmat3x4",
+			"dmat4x2",
+			"dmat4x3",
+			"dmat4x4",
+			"sampler1D",
+			"image1D",
+			"sampler2D",
+			"image2D",
+			"sampler3D",
+			"image3D",
+			"samplerCube",
+			"imageCube",
+			"sampler2DRect",
+			"image2DRect",
+			"sampler1DArray",
+			"image1DArray",
+			"sampler2DArray",
+			"image2DArray",
+			"samplerBuffer",
+			"imageBuffer",
+			"sampler2DMS",
+			"image2DMS",
+			"sampler2DMSArray",
+			"image2DMSArray",
+			"samplerCubeArray",
+			"imageCubeArray",
+			"sampler1DShadow",
+			"sampler2DShadow",
+			"sampler2DRectShadow",
+			"sampler1DArrayShadow",
+			"sampler2DArrayShadow",
+			"samplerCubeShadow",
+			"samplerCubeArrayShadow",
+			"isampler1D",
+			"iimage1D",
+			"isampler2D",
+			"iimage2D",
+			"isampler3D",
+			"iimage3D",
+			"isamplerCube",
+			"iimageCube",
+			"isampler2DRect",
+			"iimage2DRect",
+			"isampler1DArray",
+			"iimage1DArray",
+			"isampler2DArray",
+			"iimage2DArray",
+			"isamplerBuffer",
+			"iimageBuffer",
+			"isampler2DMS",
+			"iimage2DMS",
+			"isampler2DMSArray",
+			"iimage2DMSArray",
+			"isamplerCubeArray",
+			"iimageCubeArray",
+			"usampler1D",
+			"uimage1D",
+			"usampler2D",
+			"uimage2D",
+			"usampler3D",
+			"uimage3D",
+			"usamplerCube",
+			"uimageCube",
+			"usampler2DRect",
+			"uimage2DRect",
+			"usampler1DArray",
+			"uimage1DArray",
+			"usampler2DArray",
+			"uimage2DArray",
+			"usamplerBuffer",
+			"uimageBuffer",
+			"usampler2DMS",
+			"uimage2DMS",
+			"usampler2DMSArray",
+			"uimage2DMSArray",
+			"usamplerCubeArray",
+			"uimageCubeArray"
+		};
+
+		const char* muVGC_get_basic_type_name(muVGCBasicType type) {
+			return muVGC_global_basic_type_names[type];
+		}
+
+		muVGCBasicType muVGC_get_basic_type(const char* name, size_m namelen) {
+			for (size_m i = MUVGC_BASIC_TYPE_FIRST; i < MUVGC_BASIC_TYPE_LAST; i++) {
+				if (mu_strlen(muVGC_get_basic_type_name(i)) == namelen) {
+					if (mu_strncmp(name, muVGC_get_basic_type_name(i), namelen) == 0) {
+						return i;
+					}
+				}
+			}
+			return MUVGC_TYPE_UNKNOWN;
+		}
+
+	// Structs
+
+		struct muVGCParameter {
+			muVGCBasicType type;
+			muVGCToken token_name;
+			muBool is_array;
+			size_m arraylen;
+		};
+		typedef struct muVGCParameter muVGCParameter;
+
+		muBool muVGC_are_two_parameters_equivalent(const char* code, muVGCParameter p0, muVGCParameter p1) {
+			return p0.type == p1.type && p0.token_name.length == p1.token_name.length &&
+			mu_strncmp(muVGC_get_token_value(code, p0.token_name), muVGC_get_token_value(code, p1.token_name), p0.token_name.length) == 0 &&
+			p0.is_array == p1.is_array && p0.arraylen == p1.arraylen;
+		}
+
+		struct muVGCVariable {
+			muBool active;
+			muVGCBasicType type;
+			muVGCToken token_name;
+			muBool is_array;
+			size_m arraylen;
+			muBool is_function;
+			size_m scope;
+			muBool is_function_implemented;
+			muVGCParameter* parameters;
+			size_m parameterlen;
+			uint32_m id;
+		};
+		typedef struct muVGCVariable muVGCVariable;
+
+		muVGCVariable muVGC_make_variable(
+			muBool active, muVGCBasicType type, muVGCToken token_name, muBool is_array, 
+			size_m arraylen, muBool is_function, size_m scope, muBool is_function_implemented,
+			muVGCParameter* parameters, size_m parameterlen, uint32_m id) {
+			muVGCVariable var = {0};
+			var.active = active; var.type = type; var.token_name = token_name;
+			var.is_array = is_array; var.arraylen = arraylen; var.is_function = is_function;
+			var.scope = scope; var.is_function_implemented = is_function_implemented;
+			var.parameters = parameters; var.parameterlen = parameterlen; var.id = id;
+			return var;
+		}
+
+		struct muVGCVariableList {
+			muVGCVariable* variables;
+			size_m len;
+			size_m allocated_len;
+		};
+		typedef struct muVGCVariableList muVGCVariableList;
+
+	// Functions
+
+		muVGCVariableList muVGC_intialize_empty_variable_list() {
+			muVGCVariableList list = {0};
+			list.variables = MU_NULL_PTR;
+			list.len = 0;
+			list.allocated_len = 0;
+			return list;
+		}
+
+		muVGCVariableList muVGC_empty_variable_list(muVGCVariableList list) {
+			if (list.variables != MU_NULL_PTR) {
+				for (size_m i = 0; i < list.allocated_len; i++) {
+					if (list.variables[i].parameters != MU_NULL_PTR) {
+						mu_free(list.variables[i].parameters);
+						list.variables[i].parameters = MU_NULL_PTR;
+						list.variables[i].parameterlen = 0;
+					}
+				}
+				mu_free(list.variables);
+				list.variables = MU_NULL_PTR;
+			}
+			list.len = 0;
+			list.allocated_len = 0;
+			return list;
+		}
+
+		muVGCVariableList muVGC_add_variable(muVGCVariableList list, muVGCVariable var) {
+			if (list.variables == MU_NULL_PTR) {
+				list.len = 1;
+				list.allocated_len = 2;
+				list.variables = mu_malloc(sizeof(muVGCVariable) * list.allocated_len);
+				list.variables[0] = var;
+				list.variables[0].active = MU_TRUE;
+				return list;
+			}
+			for (size_m i = 0; i < list.len; i++) {
+				if (list.variables[i].active == MU_FALSE) {
+					list.variables[i] = var;
+					list.variables[i].active = MU_TRUE;
+					return list;
+				}
+			}
+			list.len += 1;
+			if (list.len >= list.allocated_len) {
+				list.allocated_len *= 2;
+				list.variables = mu_realloc(list.variables, list.allocated_len * sizeof(muVGCVariable));
+			}
+			list.variables[list.len-1] = var;
+			list.variables[list.len-1].active = MU_TRUE;
+			return list;
+		}
+
+		muVGCVariableList muVGC_remove_variable(muVGCVariableList list, size_m i) {
+			if (i < list.len) {
+				list.variables[i].active = MU_FALSE;
+				if (list.variables[i].parameters != MU_NULL_PTR) {
+					mu_free(list.variables[i].parameters);
+					list.variables[i].parameters = MU_NULL_PTR;
+					list.variables[i].parameterlen = 0;
+				}
+			}
+			return list;
+		}
+
+	// Declaration functions
+
+		muString muVGC_get_transparent_type(muString bytecode, muVGCBasicType type, uint32_m* id, uint32_m* global_id) {
+			switch (type) {
+				default: return bytecode; break;
+				case MUVGC_TYPE_VOID: {
+					return muVGC_get_void_type(bytecode, id, global_id);
+				} break;
+				case MUVGC_TYPE_BOOL: {
+					return muVGC_get_bool_type(bytecode, id, global_id);
+				} break;
+				case MUVGC_TYPE_INT: {
+					return muVGC_get_int_type(bytecode, id, global_id, 32, 1);
+				} break;
+				case MUVGC_TYPE_UINT: {
+					return muVGC_get_int_type(bytecode, id, global_id, 32, 0);
+				} break;
+				case MUVGC_TYPE_FLOAT: {
+					return muVGC_get_float_type(bytecode, id, global_id, 32);
+				} break;
+				case MUVGC_TYPE_DOUBLE: {
+					return muVGC_get_float_type(bytecode, id, global_id, 64);
+				} break;
+				case MUVGC_TYPE_VEC2: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 2);
+				} break;
+				case MUVGC_TYPE_VEC3: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 3);
+				} break;
+				case MUVGC_TYPE_VEC4: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 4);
+				} break;
+				case MUVGC_TYPE_DVEC2: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 2);
+				} break;
+				case MUVGC_TYPE_DVEC3: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 3);
+				} break;
+				case MUVGC_TYPE_DVEC4: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 4);
+				} break;
+				case MUVGC_TYPE_BVEC2: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_bool_type(bytecode, &cmp, global_id);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 2);
+				} break;
+				case MUVGC_TYPE_BVEC3: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_bool_type(bytecode, &cmp, global_id);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 3);
+				} break;
+				case MUVGC_TYPE_BVEC4: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_bool_type(bytecode, &cmp, global_id);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 4);
+				} break;
+				case MUVGC_TYPE_IVEC2: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 1);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 2);
+				} break;
+				case MUVGC_TYPE_IVEC3: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 1);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 3);
+				} break;
+				case MUVGC_TYPE_IVEC4: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 1);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 4);
+				} break;
+				case MUVGC_TYPE_UVEC2: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 0);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 2);
+				} break;
+				case MUVGC_TYPE_UVEC3: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 0);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 3);
+				} break;
+				case MUVGC_TYPE_UVEC4: {
+					uint32_m cmp = 0;
+					bytecode = muVGC_get_int_type(bytecode, &cmp, global_id, 32, 0);
+					return muVGC_get_vector_type(bytecode, id, global_id, cmp, 4);
+				} break;
+				case MUVGC_TYPE_MAT2: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 2);
+				} break;
+				case MUVGC_TYPE_MAT3: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 3);
+				} break;
+				case MUVGC_TYPE_MAT4: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 4);
+				} break;
+				case MUVGC_TYPE_MAT2X2: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 2);
+				} break;
+				case MUVGC_TYPE_MAT2X3: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 2);
+				} break;
+				case MUVGC_TYPE_MAT2X4: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 2);
+				} break;
+				case MUVGC_TYPE_MAT3X2: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 3);
+				} break;
+				case MUVGC_TYPE_MAT3X3: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 3);
+				} break;
+				case MUVGC_TYPE_MAT3X4: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 3);
+				} break;
+				case MUVGC_TYPE_MAT4X2: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 4);
+				} break;
+				case MUVGC_TYPE_MAT4X3: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 4);
+				} break;
+				case MUVGC_TYPE_MAT4X4: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 32);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 4);
+				} break;
+				case MUVGC_TYPE_DMAT2: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 2);
+				} break;
+				case MUVGC_TYPE_DMAT3: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 3);
+				} break;
+				case MUVGC_TYPE_DMAT4: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 4);
+				} break;
+				case MUVGC_TYPE_DMAT2X2: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 2);
+				} break;
+				case MUVGC_TYPE_DMAT2X3: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 2);
+				} break;
+				case MUVGC_TYPE_DMAT2X4: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 2);
+				} break;
+				case MUVGC_TYPE_DMAT3X2: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 3);
+				} break;
+				case MUVGC_TYPE_DMAT3X3: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 3);
+				} break;
+				case MUVGC_TYPE_DMAT3X4: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 3);
+				} break;
+				case MUVGC_TYPE_DMAT4X2: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 2);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 4);
+				} break;
+				case MUVGC_TYPE_DMAT4X3: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 3);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 4);
+				} break;
+				case MUVGC_TYPE_DMAT4X4: {
+					uint32_m cmp = 0, cmp2 = 0;
+					bytecode = muVGC_get_float_type(bytecode, &cmp, global_id, 64);
+					bytecode = muVGC_get_vector_type(bytecode, &cmp2, global_id, cmp, 4);
+					return muVGC_get_matrix_type(bytecode, id, global_id, cmp2, 4);
+				} break;
+			}
 		}
 
 /* STATEMENT TYPE HANDLING */
@@ -2812,6 +3423,23 @@ extern "C" { // }
 							}
 							i++;
 
+							// Array
+							if (tokens[i].type == MUVGC_TOKEN_OPEN_SQUARE_BRACKET) {
+								if (tokens[i+1].type != MUVGC_TOKEN_INTEGER_CONSTANT) {
+									muVGC_print_syntax_error(og, tokens[i+1].index);
+									mu_print("expected integer after '['\n");
+									*result = MU_FAILURE;
+									return MU_FAILURE;
+								}
+								if (tokens[i+2].type != MUVGC_TOKEN_CLOSE_SQUARE_BRACKET) {
+									muVGC_print_syntax_error(og, tokens[i+2].index);
+									mu_print("expected ']' after integer\n");
+									*result = MU_FAILURE;
+									return MU_FAILURE;
+								}
+								i += 3;
+							}
+
 							// End of parameter
 							if (tokens[i].type == MUVGC_TOKEN_COMMA) {
 								i++;
@@ -2860,34 +3488,96 @@ extern "C" { // }
 	muString muVGC_execute_statement_type(
 		muResult* result, muVGCStatementType type, muVGCToken* tokens, 
 		size_m token_len, const char* code, const char* og, muString bytecode,
-		size_m* scope_count, uint32_m* global_id) {
+		size_m* scope_count, uint32_m* global_id, muVGCVariableList* varlist) {
 
-		muResult res = MU_SUCCESS;
+		//muResult res = MU_SUCCESS;
 
 		switch (type) {
 			default: *result = MU_FAILURE; return bytecode; break;
 
 			case MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION: {
-				uint32_m return_type = 0;
-				bytecode = muVGC_get_type(bytecode, &res, muVGC_get_token_value(code, tokens[0]), tokens[0].length, &return_type, global_id);
-				if (res != MU_SUCCESS) {
+				// @TODO check for variable name duplication here
+
+				muVGCBasicType return_type = muVGC_get_basic_type(muVGC_get_token_value(code, tokens[0]), tokens[0].length);
+				if (return_type == MUVGC_TYPE_UNKNOWN) {
+					// @TODO add struct checking
 					muVGC_print_syntax_error(og, tokens[0].index);
 					mu_print("unrecognized type specified\n");
 					*result = MU_FAILURE;
 					return bytecode;
 				}
+				if (return_type < MUVGC_TRANSPARENT_TYPE_FIRST || return_type > MUVGC_TRANSPARENT_TYPE_LAST) {
+					muVGC_print_syntax_error(og,tokens[0].index);
+					mu_print("only transparent types can be used as a return value\n");
+					*result = MU_FAILURE;
+					return bytecode;
+				}
+
+				uint32_m return_type_id = 0;
+				bytecode = muVGC_get_transparent_type(bytecode, return_type, &return_type_id, global_id);
+				if (return_type_id == 0) {
+					// This should never trigger but still
+					muVGC_print_syntax_error(og, tokens[0].index);
+					mu_print("failed to declare type\n");
+					*result = MU_FAILURE;
+					return bytecode;
+				}
 
 				// @TODO Find a clean way (or way at all) to gather parameters
+				size_m parameter_count = 0;
 				uint32_m function_type = 0;
-				bytecode = muVGC_get_function_type(bytecode, &function_type, global_id, return_type, MU_NULL_PTR, 0);
-				bytecode = muVGC_op_function(bytecode, return_type, 0, function_type, global_id);
-				bytecode = muVGC_op_name(bytecode, *global_id-1, muVGC_get_token_value(code, tokens[1]), tokens[1].length);
+				bytecode = muVGC_get_function_type(bytecode, &function_type, global_id, return_type_id, MU_NULL_PTR, 0);
+				bytecode = muVGC_op_function(bytecode, return_type_id, 0, function_type, global_id);
+				size_m function_id = *global_id - 1;
+				bytecode = muVGC_op_name(bytecode, function_id, muVGC_get_token_value(code, tokens[1]), tokens[1].length);
 				bytecode = muVGC_op_label(bytecode, *global_id);
 				*global_id += 1;
-				if (tokens[0].length == 4 && mu_strncmp(muVGC_get_token_value(code, tokens[0]), "void", 4) == 0) {
+				if (return_type == MUVGC_TYPE_VOID) {
 					bytecode = muVGC_op_return(bytecode);
 				}
 				bytecode = muVGC_op_function_end(bytecode);
+
+				for (size_m i = 0; i < varlist->len; i++) {
+					if (varlist->variables[i].active == MU_TRUE && 
+						varlist->variables[i].token_name.length == tokens[1].length &&
+						mu_strncmp(muVGC_get_token_value(code, varlist->variables[i].token_name), muVGC_get_token_value(code, tokens[1]), tokens[1].length) == 0) {
+
+						if (varlist->variables[i].is_function == MU_FALSE) {
+							muVGC_print_syntax_error(og, tokens[1].index);
+							mu_print("variable declared again as function\n");
+							*result = MU_FAILURE;
+							return bytecode;
+						}
+
+						if (varlist->variables[i].is_function_implemented == MU_TRUE) {
+							muVGC_print_syntax_error(og, tokens[1].index);
+							mu_print("function implemented numerous times\n");
+							*result = MU_FAILURE;
+							return bytecode;
+						}
+
+						if (varlist->variables[i].type != return_type) {
+							muVGC_print_syntax_error(og, tokens[1].index);
+							mu_print("function redeclared with different return type\n");
+							*result = MU_FAILURE;
+							return bytecode;
+						}
+
+						if (varlist->variables[i].parameterlen != parameter_count) {
+							muVGC_print_syntax_error(og, tokens[1].index);
+							mu_print("function redeclared with different number of parameters\n");
+							*result = MU_FAILURE;
+							return bytecode;
+						}
+
+						// @TODO check for parameter equivalence
+						/*for (size_m j = 0; j < parameter_count; j++) {
+							if (muVGC_are_two_parameters_equivalent(code, varlist->variables[i].parameters[j], ))
+						}*/
+					}
+				}
+
+				*varlist = muVGC_add_variable(*varlist, muVGC_make_variable(MU_TRUE, return_type, tokens[1], MU_FALSE, 0, MU_TRUE, 0, MU_TRUE, MU_NULL_PTR, 0, function_id));
 
 				*scope_count += 1;
 				return bytecode;
@@ -3001,20 +3691,20 @@ extern "C" { // }
 	muString muVGC_execute_function(
 		muResult* result, muString bytecode, muVGCStatement* statements, size_m statement_len,
 		muVGCToken* tokens, size_m token_len, const char* code, const char* og,
-		uint32_m* global_id) {
+		uint32_m* global_id, muVGCVariableList* varlist) {
 
 		size_m scope_count = 0;
 		muResult res = MU_SUCCESS;
 		size_m i = 1;
 
-		bytecode = muVGC_execute_statement_type(&res, statements[0].type, tokens, token_len, code, og, bytecode, &scope_count, global_id);
+		bytecode = muVGC_execute_statement_type(&res, statements[0].type, tokens, token_len, code, og, bytecode, &scope_count, global_id, varlist);
 		if (res != MU_SUCCESS) {
 			*result = MU_FAILURE;
 			return bytecode;
 		}
 
 		while (scope_count > 0 && i < token_len && tokens[i].type != MUVGC_TOKEN_END_OF_FILE) {
-			bytecode = muVGC_execute_statement_type(&res, statements[i].type, &tokens[i], token_len-i, code, og, bytecode, &scope_count, global_id);
+			bytecode = muVGC_execute_statement_type(&res, statements[i].type, &tokens[i], token_len-i, code, og, bytecode, &scope_count, global_id, varlist);
 			if (res != MU_SUCCESS) {
 				*result = MU_FAILURE;
 				return bytecode;
@@ -3036,7 +3726,7 @@ extern "C" { // }
 	muString muVGC_declare_main_function(
 		muResult* result, muString bytecode, muVGCStatement* statements, size_m statement_len,
 		muVGCToken* tokens, size_m token_len, const char* code, const char* og,
-		uint32_m* global_id) {
+		uint32_m* global_id, muVGCVariableList* varlist) {
 
 		muBool found_main = MU_FALSE;
 		for (size_m i = 0; i < statement_len; i++) {
@@ -3052,14 +3742,14 @@ extern "C" { // }
 				}
 				found_main = MU_TRUE;
 
-				/*if ((tokens[statements[i].index].length != 4) ||
+				if ((tokens[statements[i].index].length != 4) ||
 					(mu_strncmp(muVGC_get_token_value(code, tokens[statements[i].index]), "void", 4) != 0)) {
 
 					muVGC_print_syntax_error(og, tokens[statements[i].index].index);
 					mu_print("entry point 'main' function declared as something else than void\n");
 					*result = MU_FAILURE;
 					return bytecode;
-				}*/
+				}
 
 				if ((tokens[statements[i].index+3].type != MUVGC_TOKEN_CLOSE_PARENTHESIS)) {
 					muVGC_print_syntax_error(og, tokens[statements[i].index+3].index);
@@ -3069,12 +3759,7 @@ extern "C" { // }
 				}
 
 				muResult res = MU_SUCCESS;
-				size_m scope_count = 0;
-				bytecode = muVGC_execute_statement_type(
-					&res, MUVGC_STATEMENT_FUNCTION_IMPLEMENTATION,
-					&tokens[statements[i].index], token_len-statements[i].index,
-					code, og, bytecode, &scope_count, global_id
-				);
+				bytecode = muVGC_execute_function(&res, bytecode, statements, statement_len, tokens, token_len, code, og, global_id, varlist);
 				if (res != MU_SUCCESS) {
 					*result = MU_FAILURE;
 					return bytecode;
@@ -3094,11 +3779,11 @@ extern "C" { // }
 	muString muVGC_execute_statements(
 		muResult* result, muString bytecode, muVGCStatement* statements, size_m statement_len,
 		muVGCToken* tokens, size_m token_len, const char* code, const char* og,
-		uint32_m* global_id) {
+		uint32_m* global_id, muVGCVariableList* varlist) {
 
 		muResult res = MU_SUCCESS;
 
-		bytecode = muVGC_declare_main_function(&res, bytecode, statements, statement_len, tokens, token_len, code, og, global_id);
+		bytecode = muVGC_declare_main_function(&res, bytecode, statements, statement_len, tokens, token_len, code, og, global_id, varlist);
 		if (res != MU_SUCCESS) {
 			*result = MU_FAILURE;
 			return bytecode;
@@ -3174,10 +3859,14 @@ extern "C" { // }
 			return (muString){ 0 };
 		}
 
+		// Start variable list
+
+		muVGCVariableList varlist = muVGC_intialize_empty_variable_list();
+
 		// Execute statements
 
 		uint32_m global_id = 2;
-		bytecode_str = muVGC_execute_statements(&res, bytecode_str, statements, statement_len, tokens, token_len, code_str.s, code, &global_id);
+		bytecode_str = muVGC_execute_statements(&res, bytecode_str, statements, statement_len, tokens, token_len, code_str.s, code, &global_id, &varlist);
 		if (res != MU_SUCCESS) {
 			if (result != MU_NULL_PTR) {
 				*result = MU_FAILURE;
@@ -3192,6 +3881,7 @@ extern "C" { // }
 
 		// Deallocate and return
 
+		varlist = muVGC_empty_variable_list(varlist);
 		mu_free(statements);
 		mu_free(tokens);
 		code_str = mu_string_destroy(code_str);
